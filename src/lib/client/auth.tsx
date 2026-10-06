@@ -27,6 +27,8 @@ type Me =
 interface AuthState {
   user: SessionUser | null;
   me: Me | null;
+  /** Why the server rejected the signed-in user, if it did. */
+  meError: string | null;
   loading: boolean;
   signInEmail(email: string, password: string): Promise<void>;
   signUpEmail(name: string, email: string, password: string): Promise<void>;
@@ -68,13 +70,16 @@ function SetupRequired({ missing }: { missing: string[] }) {
 function ConfiguredAuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [me, setMe] = useState<Me | null>(null);
+  const [meError, setMeError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const refreshMe = useCallback(async () => {
     try {
       setMe(await apiFetch<Me>("/api/me"));
-    } catch {
+      setMeError(null);
+    } catch (e) {
       setMe(null);
+      setMeError(e instanceof Error ? e.message : "The server rejected this session.");
     }
   }, []);
 
@@ -101,6 +106,7 @@ function ConfiguredAuthProvider({ children }: { children: ReactNode }) {
     () => ({
       user,
       me,
+      meError,
       loading,
       async signInEmail(email, password) {
         if (isDemoMode) return demoSignIn(setUser, refreshMe);
@@ -126,7 +132,7 @@ function ConfiguredAuthProvider({ children }: { children: ReactNode }) {
       },
       refreshMe,
     }),
-    [user, me, loading, refreshMe],
+    [user, me, meError, loading, refreshMe],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
