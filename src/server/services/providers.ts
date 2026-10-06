@@ -3,7 +3,6 @@ import { z } from "zod";
 import { AIGateway, testProvider } from "@/ai/gateway";
 import {
   DEFAULT_MODELS,
-  ModelMapSchema,
   PROVIDER_LABELS,
   ProviderKindSchema,
   type ModelMap,
@@ -45,7 +44,11 @@ export const ProviderInputSchema = z.object({
   label: z.string().max(80).optional(),
   apiKey: z.string().min(8).max(500).optional(),
   baseUrl: z.string().url().max(300).optional().or(z.literal("")),
-  models: ModelMapSchema.partial().optional(),
+  // Blank fields mean "use the default"; resolveModels() fills them in.
+  models: z
+    .object({ fast: z.string().trim().max(120), reasoning: z.string().trim().max(120), large: z.string().trim().max(120) })
+    .partial()
+    .optional(),
   enabled: z.boolean().optional(),
   priority: z.number().int().min(0).max(100).optional(),
   costPer1MInput: z.number().min(0).max(10_000).optional(),
@@ -75,7 +78,13 @@ function validateBaseUrl(kind: ProviderKind, baseUrl: string | undefined) {
 
 function resolveModels(kind: ProviderKind, models: Partial<ModelMap> | undefined, current?: ModelMap): ModelMap {
   const merged = { ...DEFAULT_MODELS[kind], ...current, ...stripEmpty(models) };
-  if (!merged.reasoning) throw badRequest("A reasoning model is required");
+  if (!merged.reasoning) {
+    throw badRequest(
+      kind === "custom"
+        ? "Enter at least a Reasoning model name for a custom provider (e.g. google/gemini-2.5-flash for OpenRouter)."
+        : "A reasoning model is required",
+    );
+  }
   return {
     fast: merged.fast || merged.reasoning,
     reasoning: merged.reasoning,
