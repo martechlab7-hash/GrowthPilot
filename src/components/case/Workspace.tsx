@@ -19,6 +19,8 @@ import { ActivationView, MeasurementView } from "./PlanViews";
 import { EconomicsView } from "./EconomicsView";
 import { RoadmapView, ReportView } from "./ReportView";
 import { HistoryView } from "./HistoryView";
+import { ActivityPanel } from "./ActivityPanel";
+import { AiModelPicker } from "./AiModelPicker";
 
 export const TABS = [
   ["overview", "Overview"],
@@ -86,6 +88,36 @@ export function Workspace({ id }: { id: string }) {
   const next = nextAction(c, derived.readiness.ready);
   const props: CaseTabProps = { view: ctl.view, ctl, canManage, canContribute, go };
 
+  /** Re-run the operation that failed, with the currently selected AI model. */
+  async function retry(operation: string) {
+    go(resumeTab(operation));
+    switch (operation) {
+      case "diagnose":
+        if ((await ctl.run("Diagnosing", "/diagnose", { body: { override: true } })) && !c.hypotheses.some((h) => h.status === "proposed")) {
+          if (await ctl.run("Generating hypotheses", "/hypotheses")) go("hypotheses");
+        }
+        break;
+      case "hypotheses":
+        await ctl.run("Generating hypotheses", "/hypotheses");
+        break;
+      case "recommendations":
+        await ctl.run("Building recommendations", "/recommendations");
+        break;
+      case "plan":
+        await ctl.run("Designing plan", "/plan");
+        break;
+      case "report":
+        await ctl.run("Writing report", "/report");
+        break;
+      case "interview":
+        await ctl.run("Thinking", "/interview", { body: { adaptive: true } });
+        break;
+      default:
+        // e.g. hypothesis refinement: the user re-submits their review on the Hypotheses tab.
+        await ctl.run("Dismissing", "", { method: "PATCH", body: { dismissPending: true } });
+    }
+  }
+
   return (
     <div className="mx-auto max-w-7xl">
       <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
@@ -99,18 +131,25 @@ export function Workspace({ id }: { id: string }) {
             <span aria-live="polite">{ctl.busy ? `${ctl.busy}…` : ctl.savedAt ? `Saved ${timeAgo(ctl.savedAt)}` : `Updated ${timeAgo(c.updatedAt)}`}</span>
           </div>
         </div>
-        <div className="w-64">
-          <div className="mb-1 flex justify-between text-xs text-muted"><span>Progress</span><span className="tabular-nums">{c.progress}%</span></div>
-          <Progress value={c.progress} />
+        <div className="flex flex-col items-end gap-3">
+          <div className="w-64">
+            <div className="mb-1 flex justify-between text-xs text-muted"><span>Progress</span><span className="tabular-nums">{c.progress}%</span></div>
+            <Progress value={c.progress} />
+          </div>
+          {canContribute && <AiModelPicker />}
         </div>
       </div>
 
-      {c.pendingOperation && (
-        <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          <span className="flex items-center gap-2"><AlertTriangle className="h-4 w-4" /> {c.pendingOperation.message}</span>
-          <Button size="sm" variant="outline" onClick={() => go(resumeTab(c.pendingOperation!.operation))}>Resume</Button>
+      {c.pendingOperation && !ctl.busy && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <span className="flex min-w-0 items-start gap-2"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> <span className="break-words">{c.pendingOperation.message}</span></span>
+          <div className="flex gap-2">
+            {canManage && <Button size="sm" onClick={() => retry(c.pendingOperation!.operation)}>Retry now</Button>}
+            <Button size="sm" variant="ghost" onClick={() => ctl.run("Dismissing", "", { method: "PATCH", body: { dismissPending: true } })}>Dismiss</Button>
+          </div>
         </div>
       )}
+      <ActivityPanel caseId={c.id} busy={ctl.busy} />
       {c.analysisStale && (
         <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
           <span className="flex items-center gap-2"><RefreshCw className="h-4 w-4" /> New information was added after the diagnosis. Re-running it may change the conclusions.</span>

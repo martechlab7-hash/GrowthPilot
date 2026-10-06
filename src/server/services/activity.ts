@@ -1,0 +1,105 @@
+import "server-only";
+import type { Progress } from "@/ai/agents";
+import type { AIEvent } from "@/ai/types";
+import { log } from "../logger";
+import { getStore } from "../store";
+
+export interface ActivityStep {
+  at: string;
+  label: string;
+  detail?: string;
+  status: "running" | "done" | "error";
+}
+
+/** Live record of the AI operation running on a case (one document per case). */
+export interface CaseActivity {
+  id: string; // = caseId
+  organizationId: string;
+  caseId: string;
+  operation: string;
+  status: "running" | "succeeded" | "failed";
+  provider?: string;
+  model?: string;
+  startedAt: string;
+  updatedAt: string;
+  finishedAt?: string;
+  steps: ActivityStep[];
+}
+
+const OPERATION_LABELS: Record<string, string> = {
+  diagnose: "Diagnosis",
+  hypotheses: "Hypothesis generation",
+  refine_hypothesis: "Hypothesis refinement",
+  recommendations: "Recommendations",
+  plan: "Activation & measurement plan",
+  report: "Strategy report",
+  interview: "Adaptive interview questions",
+};
+
+const col = () => getStore().collection<CaseActivity>("case_activity");
+
+/**
+ * Writes progress as it happens so the UI can poll it while the request runs.
+ * Writes are serialised and failures are swallowed: reporting never breaks analysis.
+ */
+export class ActivityRecorder implements Progress {
+  private doc: CaseActivity;
+  private queue: Promise<void> = Promise.resolve();
+
+  constructor(orgId: string, caseId: string, operation: string) {
+    const t = new Date().toISOString();
+    this.doc = { id: caseId, organizationId: orgId, caseId, operation: OPERATION_LABELS[operation] ?? operation, status: "running", startedAt: t, updatedAt: t, steps: [] };
+  }
+
+  private flush() {
+    const snapshot = structuredClone(this.doc);
+    this.queue = this.queue.then(() => col().set(snapshot)).catch((err) => log("warn", "activity.write_failed", { message: (err as Error).message }));
+    return this.queue;
+  }
+
+  step(label: string, detail?: string, status: ActivityStep["status"] = "running") {
+    const t = new Date().toISOString();
+    for (const s of this.doc.steps) if (s.status === "running") s.status = "done";
+    this.doc.steps.push({ at: t, label, ...(detail ? { detail } : {}), status });
+    this.doc.steps = this.doc.steps.slice(-60);
+    this.doc.updatedAt = t;
+    void this.flush();
+  }
+
+  ai(e: AIEvent) {
+    switch (e.type) {
+      case "attempt":
+        this.doc.provider = e.provider;
+        this.doc.model = e.model;
+        this.step(`Calling ${e.provider} · ${e.model}`, e.attempt > 1 ? `Attempt ${e.attempt}` : "Waiting for the model to respond (this can take 20–90 seconds)");
+        break;
+      case "response":
+        this.step(`Response received from ${e.model}`, `${(e.latencyMs / 1000).toFixed(1)}s · ${e.inputTokens.toLocaleString("en")} input / ${e.outputTokens.toLocaleString("en")} output tokens`, "done");
+        break;
+      case "repair":
+        this.step("Output did not match the expected structure — asking the model to correct it", e.reason.slice(0, 200));
+        break;
+      case "error":
+        this.step(`${e.provider} failed${e.willRetry ? " — retrying" : ""}`, e.message.slice(0, 300), "error");
+        break;
+      case "fallback":
+        this.step(`Falling back from ${e.from} to ${e.to}`);
+        break;
+    }
+  }
+
+  async finish(status: "succeeded" | "failed", detail?: string) {
+    const t = new Date().toISOString();
+    for (const s of this.doc.steps) if (s.status === "running") s.status = status === "failed" ? "error" : "done";
+    this.doc.steps.push({ at: t, label: status === "succeeded" ? "Completed and saved to the case" : "Stopped — case saved, nothing lost", ...(detail ? { detail } : {}), status: status === "succeeded" ? "done" : "error" });
+    this.doc.status = status;
+    this.doc.finishedAt = t;
+    this.doc.updatedAt = t;
+    await this.flush();
+  }
+}
+
+export async function getActivity(orgId: string, caseId: string): Promise<CaseActivity | null> {
+  const a = await col().get(caseId);
+  return a && a.organizationId === orgId ? a : null;
+}

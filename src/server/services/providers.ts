@@ -3,7 +3,6 @@ import { z } from "zod";
 import { AIGateway, testProvider } from "@/ai/gateway";
 import {
   DEFAULT_MODELS,
-  ModelMapSchema,
   PROVIDER_LABELS,
   ProviderKindSchema,
   type ModelMap,
@@ -45,7 +44,11 @@ export const ProviderInputSchema = z.object({
   label: z.string().max(80).optional(),
   apiKey: z.string().min(8).max(500).optional(),
   baseUrl: z.string().url().max(300).optional().or(z.literal("")),
-  models: ModelMapSchema.partial().optional(),
+  // Blank fields mean "use the default"; resolveModels() fills them in.
+  models: z
+    .object({ fast: z.string().trim().max(120), reasoning: z.string().trim().max(120), large: z.string().trim().max(120) })
+    .partial()
+    .optional(),
   enabled: z.boolean().optional(),
   priority: z.number().int().min(0).max(100).optional(),
   costPer1MInput: z.number().min(0).max(10_000).optional(),
@@ -54,6 +57,18 @@ export const ProviderInputSchema = z.object({
 export type ProviderInput = z.infer<typeof ProviderInputSchema>;
 
 const col = () => getStore().collection<AiProviderRecord>("ai_providers");
+
+/** Custom providers are named after their host (e.g. "openrouter.ai") so they're distinguishable. */
+function defaultLabel(kind: ProviderKind, baseUrl: string | undefined): string {
+  if (kind === "custom" && baseUrl) {
+    try {
+      return new URL(baseUrl).host;
+    } catch {
+      /* fall through */
+    }
+  }
+  return PROVIDER_LABELS[kind];
+}
 
 export function toPublic(p: AiProviderRecord): PublicProvider {
   const { encryptedKey: _secret, ...rest } = p;
@@ -75,7 +90,13 @@ function validateBaseUrl(kind: ProviderKind, baseUrl: string | undefined) {
 
 function resolveModels(kind: ProviderKind, models: Partial<ModelMap> | undefined, current?: ModelMap): ModelMap {
   const merged = { ...DEFAULT_MODELS[kind], ...current, ...stripEmpty(models) };
-  if (!merged.reasoning) throw badRequest("A reasoning model is required");
+  if (!merged.reasoning) {
+    throw badRequest(
+      kind === "custom"
+        ? "Enter at least a Reasoning model name for a custom provider (e.g. google/gemini-2.5-flash for OpenRouter)."
+        : "A reasoning model is required",
+    );
+  }
   return {
     fast: merged.fast || merged.reasoning,
     reasoning: merged.reasoning,
@@ -97,7 +118,7 @@ export async function createProvider(orgId: string, uid: string, input: Provider
     id: `prv_${crypto.randomUUID().slice(0, 12)}`,
     organizationId: orgId,
     kind: input.kind,
-    label: input.label || PROVIDER_LABELS[input.kind],
+    label: input.label || defaultLabel(input.kind, baseUrl),
     ...(baseUrl ? { baseUrl } : {}),
     models: resolveModels(input.kind, input.models),
     encryptedKey: encryptSecret(input.apiKey.trim()),
@@ -181,9 +202,21 @@ export async function resolveProviders(orgId: string): Promise<ResolvedProvider[
   return out;
 }
 
-export async function gatewayFor(orgId: string): Promise<AIGateway> {
+/**
+ * The preferred provider (and optional model override) runs first; the
+ * others remain as automatic fallbacks.
+ */
+export async function gatewayFor(orgId: string, preference?: { providerId: string; model?: string }): Promise<AIGateway> {
+  let providers = await resolveProviders(orgId);
+  if (preference) {
+    const chosen = providers.find((p) => p.id === preference.providerId);
+    if (chosen) {
+      const first = preference.model ? { ...chosen, models: { fast: preference.model, reasoning: preference.model, large: preference.model } } : chosen;
+      providers = [first, ...providers.filter((p) => p.id !== chosen.id)];
+    }
+  }
   return new AIGateway({
-    providers: await resolveProviders(orgId),
+    providers,
     recordUsage,
     log: (event, data) => log("warn", event, { orgId, ...data }),
   });

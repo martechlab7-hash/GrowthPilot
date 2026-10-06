@@ -54,6 +54,8 @@ function ProviderForm({ onDone }: { onDone: () => void }) {
   const [test, setTest] = useState<TestResult | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const body = () => ({ kind, apiKey, ...(baseUrl ? { baseUrl } : {}), models });
+  const missingModel = kind === "custom" && !models.reasoning.trim();
+  const missingBase = kind === "custom" && !baseUrl.trim();
 
   return (
     <Card className="mb-6">
@@ -92,15 +94,21 @@ function ProviderForm({ onDone }: { onDone: () => void }) {
             </div>
           ))}
         </div>
+        {(missingBase || missingModel) && (
+          <p className="text-sm text-amber-700">
+            {missingBase ? "Enter the provider's Base URL. " : ""}
+            {missingModel ? "Enter at least the Reasoning model name (blank Fast/Large fields reuse it)." : ""}
+          </p>
+        )}
         {test && <TestBadge r={test} />}
         <ErrorNote error={err} />
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onDone}>Cancel</Button>
-          <Button variant="outline" loading={busy === "test"} disabled={!apiKey} onClick={async () => {
+          <Button variant="outline" loading={busy === "test"} disabled={!apiKey || missingModel || missingBase} onClick={async () => {
             setBusy("test"); setErr(null);
             try { setTest(await apiFetch<TestResult>("/api/ai/test-provider", { body: body() })); } catch (e) { setErr((e as Error).message); } finally { setBusy(null); }
           }}>Test connection</Button>
-          <Button loading={busy === "save"} disabled={!apiKey} onClick={async () => {
+          <Button loading={busy === "save"} disabled={!apiKey || missingModel || missingBase} onClick={async () => {
             setBusy("save"); setErr(null);
             try { await apiFetch("/api/ai/providers", { body: body() }); onDone(); } catch (e) { setErr((e as Error).message); setBusy(null); }
           }}>Save</Button>

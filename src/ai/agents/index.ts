@@ -19,16 +19,35 @@ import { candidateQuestions } from "@/engine/interview";
 import { createVault, maskPii, restorePii, type PiiVault } from "@/engine/pii";
 import { QUESTION_BANK } from "@/knowledge/questionBank";
 import type { AIGateway, GatewayCallContext } from "../gateway";
-import type { ModelTier } from "../types";
+import type { AIEvent, ModelTier } from "../types";
 import { buildAgentContext, serializeContext } from "./context";
 import * as P from "./prompts";
 import * as S from "./schemas";
 
 const newId = (prefix: string) => `${prefix}_${crypto.randomUUID().slice(0, 8)}`;
 
+/** Receives human-readable progress for the activity panel. */
+export interface Progress {
+  step(label: string, detail?: string): void;
+  ai(e: AIEvent): void;
+}
+
+const AGENT_LABELS: Record<string, string> = {
+  extraction: "Fact extraction",
+  interview: "Interview Agent",
+  diagnostic: "Diagnostic Agent",
+  hypothesis: "Hypothesis Agent",
+  hypothesis_refine: "Hypothesis refinement",
+  recommendation: "Recommendation Agent",
+  activation: "Activation Agent",
+  measurement: "Measurement Agent",
+  report: "Report Agent",
+};
+
 interface AgentDeps {
   gateway: AIGateway;
   call: GatewayCallContext;
+  progress?: Progress;
 }
 
 /** Run one agent with PII masked on the way out and restored on the way back. */
@@ -40,11 +59,20 @@ async function runAgent<T extends z.ZodType>(
   sections: Record<string, string>,
   schema: T,
 ): Promise<z.infer<T>> {
+  const name = AGENT_LABELS[agent] ?? agent;
   const vault: PiiVault = createVault();
   const prompt = Object.entries(sections)
     .map(([title, body]) => `## ${title}\n${maskPii(body, vault).text}`)
     .join("\n\n");
-  const { data } = await deps.gateway.generateStructured({ agent, tier, system, prompt, schema, context: deps.call });
+  deps.progress?.step(
+    `${name}: preparing case context`,
+    `${Object.keys(sections).join(", ")} · ~${Math.round(prompt.length / 4).toLocaleString("en")} tokens · ${vault.tokens.size} personal data item(s) masked · ${tier} model`,
+  );
+  const { data } = await deps.gateway.generateStructured({
+    agent, tier, system, prompt, schema, context: deps.call,
+    onEvent: (e) => deps.progress?.ai(e),
+  });
+  deps.progress?.step(`${name}: output validated`, "Structured JSON matched the expected schema");
   if (vault.tokens.size === 0) return data;
   return JSON.parse(restorePii(JSON.stringify(data), vault)) as z.infer<T>;
 }

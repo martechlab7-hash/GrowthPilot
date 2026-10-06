@@ -62,3 +62,11 @@ describe("openrouter adapter", () => {
     await expect(openrouterAdapter.complete(req("x/y"), creds)).rejects.toThrow(/No endpoints found/);
   });
 });
+
+describe("provider input validation", () => {
+  it("accepts blank model fields (defaults fill them) instead of rejecting the form", async () => {
+    const { ProviderInputSchema } = await import("@/server/services/providers");
+    const parsed = ProviderInputSchema.parse({ kind: "custom", apiKey: "sk-or-v1-abcdefgh", baseUrl: "https://openrouter.ai/api/v1", models: { fast: "", reasoning: "google/gemini-2.5-flash", large: "" } });
+    expect(parsed.models?.reasoning).toBe("google/gemini-2.5-flash");
+  });
+});

@@ -18,7 +18,9 @@ export function errorResponse(err: unknown, route: string) {
   }
   if (err instanceof ZodError) {
     return NextResponse.json(
-      { error: "Invalid request", code: "VALIDATION", details: err.issues.map((i) => ({ path: i.path.join("."), message: i.message })) },
+      {
+        error: `Invalid request: ${err.issues.slice(0, 3).map((i) => `${i.path.join(".") || "body"} — ${i.message}`).join("; ")}`,
+        code: "VALIDATION", details: err.issues.map((i) => ({ path: i.path.join("."), message: i.message })) },
       { status: 400 },
     );
   }
