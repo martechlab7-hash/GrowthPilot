@@ -6,6 +6,7 @@ import { Button, Card, CardBody, CardHeader, ErrorNote, Input } from "@/componen
 import { apiFetch } from "@/lib/client/api";
 import { useAuth } from "@/lib/client/auth";
 import { MascotPicker } from "@/components/mascot/MascotPicker";
+import { NameForm } from "@/components/account/NameForm";
 
 export default function SettingsPage() {
   const { me, signOut } = useAuth();
@@ -19,8 +20,8 @@ export default function SettingsPage() {
     <div className="space-y-5">
       <Card>
         <CardHeader title="Account & organization" />
-        <CardBody className="grid gap-3 text-sm sm:grid-cols-2">
-          <div><div className="text-muted">Name</div>{me.profile.displayName}</div>
+        <CardBody className="grid gap-4 text-sm sm:grid-cols-2">
+          <div className="sm:col-span-2"><div className="mb-1 text-muted">Your name</div><NameForm /></div>
           <div><div className="text-muted">Email</div>{me.profile.email}</div>
           <div><div className="text-muted">Organization</div>{me.organization?.name}</div>
           <div><div className="text-muted">Role · Plan</div>{me.profile.role} · {me.organization?.plan}</div>

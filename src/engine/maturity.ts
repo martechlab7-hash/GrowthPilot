@@ -1,4 +1,5 @@
 import type { CaseContext, Maturity, MaturityDimension } from "@/domain/types";
+import { capabilitiesFromVendors } from "@/knowledge/martech";
 import { getList, getString, isKnown } from "./context";
 
 export const MATURITY_LEVELS = [
@@ -11,7 +12,7 @@ export const MATURITY_LEVELS = [
 ] as const;
 
 const MATURITY_KEYS = [
-  "technology.stack", "technology.ml_models", "technology.integration", "data.available",
+  "technology.stack", "technology.vendors", "technology.ml_models", "technology.integration", "data.available",
   "data.identity_resolution", "data.latency", "marketing.campaign_style",
   "marketing.personalization_level", "measurement.experimentation", "operations.team",
 ];
@@ -23,7 +24,9 @@ const has = (list: string[], item: string) => list.some((x) => x.toLowerCase() =
  * the user told us. Unanswered inputs score 0 and are reported, never guessed.
  */
 export function assessMaturity(ctx: CaseContext): Maturity {
-  const stack = getList(ctx, "technology.stack");
+  // Generic capabilities the user ticked plus those implied by named vendors.
+  const vendors = getList(ctx, "technology.vendors");
+  const stack = [...new Set([...getList(ctx, "technology.stack"), ...capabilitiesFromVendors(vendors)])];
   const models = getList(ctx, "technology.ml_models").filter((m) => m !== "None");
   const data = getList(ctx, "data.available");
   const identity = getString(ctx, "data.identity_resolution") ?? "";
@@ -46,7 +49,11 @@ export function assessMaturity(ctx: CaseContext): Maturity {
   for (const c of ["CRM", "CDP", "Marketing automation", "Data warehouse", "Personalisation engine"]) if (has(stack, c)) techScore += 0.8;
   if (integration.startsWith("API")) techScore += 1;
   else if (integration.startsWith("Batch")) techScore += 0.5;
-  dims.push({ dimension: "Technology", score: cap(techScore), rationale: `Stack: ${stack.join(", ") || "unknown"}; integration: ${integration || "unknown"}` });
+  dims.push({
+    dimension: "Technology",
+    score: cap(techScore),
+    rationale: `${vendors.length ? `Vendors: ${vendors.slice(0, 6).join(", ")}${vendors.length > 6 ? "…" : ""}. ` : ""}Capabilities: ${stack.join(", ") || "unknown"}; integration: ${integration || "unknown"}`,
+  });
 
   const styleScore: Record<string, number> = {
     "Batch broadcasts to broad audiences": 1,

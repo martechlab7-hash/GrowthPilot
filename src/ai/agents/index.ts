@@ -49,7 +49,13 @@ interface AgentDeps {
   gateway: AIGateway;
   call: GatewayCallContext;
   progress?: Progress;
+  /** User-supplied knowledge-base links (titles + notes only; never fetched). */
+  references?: string;
 }
+
+const REFERENCE_AGENTS = new Set(["interview", "diagnostic", "hypothesis", "recommendation", "activation", "measurement", "report"]);
+const REFERENCE_NOTE =
+  "Links the organization saved in its knowledge base. Only the titles and notes below are known; the pages were NOT fetched. Use them as pointers to internal methodology or context, cite them by title when relevant, and never invent their contents.";
 
 /** Run one agent with PII masked on the way out and restored on the way back. */
 async function runAgent<T extends z.ZodType>(
@@ -61,6 +67,9 @@ async function runAgent<T extends z.ZodType>(
   schema: T,
 ): Promise<z.infer<T>> {
   const name = AGENT_LABELS[agent] ?? agent;
+  if (deps.references && REFERENCE_AGENTS.has(agent)) {
+    sections = { ...sections, "ORGANIZATION REFERENCES (user-supplied)": `${REFERENCE_NOTE}\n${deps.references}` };
+  }
   const vault: PiiVault = createVault();
   const prompt = Object.entries(sections)
     .map(([title, body]) => `## ${title}\n${maskPii(body, vault).text}`)

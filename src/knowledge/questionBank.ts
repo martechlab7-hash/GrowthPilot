@@ -1,5 +1,6 @@
 import type { ProblemType, Question } from "@/domain/types";
 import { INDUSTRY_OPTIONS } from "./industries";
+import { VENDOR_GROUPS, VENDOR_OPTIONS } from "./martech";
 
 /**
  * A bank question carries relevance rules in addition to the base scores.
@@ -303,12 +304,21 @@ export const QUESTION_BANK: BankQuestion[] = [
     businessImpact: 4, diagnosticValue: 4, decisionRelevance: 5, critical: true,
   }),
   q({
+    id: "tech-vendors", key: "technology.vendors", stage: "technology", category: "TECHNOLOGY",
+    prompt: "Which marketing tools and platforms do you use today?",
+    why: "Knowing your actual vendors (e.g. Adobe, Salesforce, Braze) lets me recommend extending what you already own before suggesting anything new, and shapes how activation can be implemented.",
+    input: "multiselect",
+    options: VENDOR_OPTIONS,
+    groups: VENDOR_GROUPS.map((g) => ({ label: g.label, options: g.vendors.map((v) => v.name) })),
+    businessImpact: 5, diagnosticValue: 5, decisionRelevance: 5, critical: true,
+  }),
+  q({
     id: "tech-tools", key: "technology.tools", stage: "technology", category: "TECHNOLOGY",
-    prompt: "Which specific tools/vendors do you use (optional)?",
-    why: "Named tools let me recommend enhancements to what you own before suggesting new purchases.",
-    input: "text", placeholder: "e.g. Salesforce, Braze, GA4, Snowflake",
+    prompt: "Any other tools not listed (in-house systems, regional vendors)?",
+    why: "Tools outside the list still shape what can be activated quickly.",
+    input: "text", placeholder: "e.g. in-house CDP, Netcore, regional SMS gateway",
     businessImpact: 2, diagnosticValue: 2, decisionRelevance: 3,
-    when: { requiresKnown: ["technology.stack"] },
+    when: { requiresKnown: ["technology.vendors"] },
   }),
   q({
     id: "tech-integration", key: "technology.integration", stage: "technology", category: "TECHNOLOGY",
@@ -401,6 +411,103 @@ export const QUESTION_BANK: BankQuestion[] = [
     why: "Experience failures (service, delivery, digital) drive churn that communication cannot offset.",
     input: "multiselect", options: ["Service quality", "Delivery / fulfilment", "Digital UX / app issues", "Pricing perception", "Product quality", "Operational disruption", "None known"],
     businessImpact: 4, diagnosticValue: 4, decisionRelevance: 3,
+  }),
+  /* ------------------------- PROBLEM-SPECIFIC DEPTH ------------------------ */
+  q({
+    id: "price-changes", key: "performance.price_changes", stage: "diagnosis", category: "ECONOMICS",
+    prompt: "Have prices, discounts or promotion depth changed recently (yours or competitors')?",
+    why: "Price and promotion shifts are a leading cause of demand and margin changes; they separate pricing problems from marketing problems.",
+    input: "select", options: ["We raised prices", "We cut prices / deepened discounts", "Competitors cut prices", "No material change", "Not sure"],
+    businessImpact: 5, diagnosticValue: 5, decisionRelevance: 4,
+    when: { problemTypes: ["pricing", "retention", "conversion", "monetization", "acquisition"] },
+  }),
+  q({
+    id: "price-discount-share", key: "economics.discounted_share", stage: "economics", category: "ECONOMICS",
+    prompt: "Roughly what share of revenue is sold on promotion or discount?",
+    why: "High promotional dependency erodes margin and trains customers to wait for deals.",
+    input: "percent",
+    businessImpact: 4, diagnosticValue: 4, decisionRelevance: 4,
+    when: { problemTypes: ["pricing", "monetization", "loyalty"] },
+  }),
+  q({
+    id: "b2b-funnel", key: "performance.b2b_funnel", stage: "diagnosis", category: "PERFORMANCE",
+    prompt: "Where does the B2B funnel leak most?",
+    why: "Lead volume, MQL→SQL conversion, win rate and cycle length each point to different fixes (targeting, qualification, sales enablement, pricing).",
+    input: "select", options: ["Not enough leads", "Leads don't become MQLs", "MQL → SQL conversion", "Opportunities don't close (win rate)", "Sales cycle too long", "Not sure"],
+    businessImpact: 5, diagnosticValue: 5, decisionRelevance: 5,
+    when: { problemTypes: ["pipeline"] },
+  }),
+  q({
+    id: "b2b-deal", key: "business.b2b_deal_profile", stage: "business", category: "BUSINESS",
+    prompt: "What are your typical deal size (ACV) and sales cycle length?",
+    why: "Deal economics decide whether ABM, inside sales, product-led or partner motions make sense.",
+    input: "text", placeholder: "e.g. $40k ACV, 4–6 month cycle",
+    businessImpact: 4, diagnosticValue: 4, decisionRelevance: 4,
+    when: { problemTypes: ["pipeline"] },
+  }),
+  q({
+    id: "b2b-alignment", key: "operations.sales_marketing_alignment", stage: "business", category: "OPERATIONS",
+    prompt: "Do sales and marketing share lead definitions, SLAs and a feedback loop?",
+    why: "Misaligned definitions are a common hidden cause of 'bad leads'.",
+    input: "select", options: ["Yes — shared definitions and SLAs", "Partially", "No", "Not sure"],
+    businessImpact: 4, diagnosticValue: 4, decisionRelevance: 4,
+    when: { problemTypes: ["pipeline"] },
+  }),
+  q({
+    id: "paid-trend", key: "performance.paid_media_trend", stage: "diagnosis", category: "MARKETING",
+    prompt: "What changed in paid media performance?",
+    why: "Rising CPMs, falling CTR (creative fatigue), falling CVR (landing/offer) or tracking loss each need a different response.",
+    input: "multiselect", options: ["CPM / CPC rising", "CTR falling (creative fatigue)", "Conversion rate falling", "Tracking / signal loss (iOS, cookies)", "Budget shifted between channels", "Audience saturation", "Not sure"],
+    businessImpact: 5, diagnosticValue: 5, decisionRelevance: 4,
+    when: { problemTypes: ["paid_media", "acquisition"] },
+  }),
+  q({
+    id: "paid-split", key: "marketing.paid_channel_mix", stage: "activation", category: "MARKETING",
+    prompt: "How is paid budget split across channels, and what is total monthly spend?",
+    why: "Channel concentration and spend level shape where efficiency can be found and how to test incrementally.",
+    input: "text", placeholder: "e.g. $120k/month — Meta 50%, Google 35%, TikTok 15%",
+    businessImpact: 4, diagnosticValue: 3, decisionRelevance: 4,
+    when: { problemTypes: ["paid_media", "acquisition", "measurement"] },
+  }),
+  q({
+    id: "seo-trend", key: "performance.organic_trend", stage: "diagnosis", category: "MARKETING",
+    prompt: "What happened to organic search traffic and rankings?",
+    why: "Algorithm updates, technical issues, AI search answers or content decay cause different organic declines.",
+    input: "select", options: ["Sudden drop after an algorithm update", "Gradual decline", "Drop after a site migration / redesign", "Traffic stable but conversions down", "Losing clicks to AI answers / SERP features", "Not sure"],
+    businessImpact: 4, diagnosticValue: 5, decisionRelevance: 4,
+    when: { problemTypes: ["seo_content"] },
+  }),
+  q({
+    id: "brand-tracking", key: "performance.brand_health", stage: "diagnosis", category: "COMPETITION",
+    prompt: "How is brand health tracked (awareness, consideration, share of search)?",
+    why: "Without brand metrics we can't tell whether demand is falling at the top of the funnel or being lost lower down.",
+    input: "select", options: ["Regular brand tracker", "Share of search / social listening", "Occasional surveys", "Not tracked"],
+    businessImpact: 4, diagnosticValue: 4, decisionRelevance: 3,
+    when: { problemTypes: ["brand", "acquisition"] },
+  }),
+  q({
+    id: "measure-confidence", key: "measurement.confidence", stage: "measurement", category: "PERFORMANCE",
+    prompt: "How much do you trust your current marketing measurement?",
+    why: "Low trust usually means decisions are made on last-click or platform-reported numbers, which over-credit some channels.",
+    input: "select", options: ["High — validated with experiments/MMM", "Medium — directional only", "Low — numbers conflict", "We don't really measure"],
+    businessImpact: 4, diagnosticValue: 4, decisionRelevance: 4,
+    when: { problemTypes: ["measurement", "paid_media", "acquisition"] },
+  }),
+  q({
+    id: "advocacy-nps", key: "customer.advocacy", stage: "customer", category: "EXPERIENCE",
+    prompt: "Do customers refer others today, and is there a referral or review programme?",
+    why: "Referral and review loops are the cheapest acquisition channel when the experience supports them.",
+    input: "select", options: ["Active referral programme", "Reviews programme only", "Organic word of mouth only", "None", "Not sure"],
+    businessImpact: 3, diagnosticValue: 4, decisionRelevance: 4,
+    when: { problemTypes: ["advocacy", "acquisition", "loyalty"] },
+  }),
+  q({
+    id: "app-funnel", key: "performance.app_funnel", stage: "diagnosis", category: "PERFORMANCE",
+    prompt: "Where does the app funnel break down?",
+    why: "Store conversion, onboarding, push opt-in and early retention need different fixes.",
+    input: "multiselect", options: ["Store page conversion", "Install → sign-up", "Onboarding completion", "Push opt-in", "Day-7 / Day-30 retention", "Uninstalls", "Not sure"],
+    businessImpact: 5, diagnosticValue: 5, decisionRelevance: 4,
+    when: { problemTypes: ["app_growth"] },
   }),
 ];
 

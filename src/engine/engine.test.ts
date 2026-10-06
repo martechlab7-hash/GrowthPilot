@@ -120,3 +120,12 @@ describe("PII masking", () => {
     expect(restorePii(masked, vault)).toBe(text);
   });
 });
+
+describe("martech vendors", () => {
+  it("infer capabilities for maturity from named vendors", () => {
+    const ctx = setField(emptyContext(), { key: "technology.vendors", value: ["Braze", "Segment (Twilio)", "Snowflake"], by: "u" });
+    const tech = assessMaturity(ctx).dimensions.find((d) => d.dimension === "Technology")!;
+    expect(tech.score).toBeGreaterThan(2);
+    expect(tech.rationale).toContain("Braze");
+  });
+});

@@ -17,11 +17,11 @@ The product name is configuration (`NEXT_PUBLIC_PRODUCT_NAME`), so the platform 
 |---|---|
 | Auth (Firebase email/password + Google), organizations, roles (owner/admin/strategist/analyst/viewer) | ✅ |
 | Case creation with optional context, problem classification, industry detection | ✅ |
-| **Information Value Engine**: 49 classified questions, priority = impact × diagnostic value × uncertainty × decision relevance, industry/problem relevance rules, "why am I asking this?", sufficiency statements, never re-asks | ✅ |
+| **Information Value Engine**: 62 classified questions (incl. a grouped MarTech vendor picker: Adobe, Salesforce, Braze, MoEngage, Segment…), priority = impact × diagnostic value × uncertainty × decision relevance, industry/problem relevance rules, "why am I asking this?", sufficiency statements, never re-asks | ✅ |
 | Structured question UI (chips, multi-select, numbers, text) + AI adaptive follow-ups | ✅ |
 | Case context with **fact / inference / assumption** provenance on every value | ✅ |
 | B-D-C-D-T-A-M-E progress, diagnostic readiness gate (overridable, logged) | ✅ |
-| Framework selection engine (17 diagnostic frameworks), industry library (8 industries) | ✅ |
+| Framework selection engine (40 frameworks across strategy, brand, pricing, B2B, paid, SEO, measurement, app, MarTech), industry library (18 industries) | ✅ |
 | Specialised agents: extraction, interview, diagnostic, hypothesis, refine, recommendation, activation, measurement, report | ✅ |
 | **Hypothesis approval gate**: agree / partially agree (AI refines + clarifying questions) / disagree (reason required, excluded) / edit / add information | ✅ |
 | Recommendations with deterministic prioritisation (Impact × Confidence × Fit ÷ Effort → P0–P3), user can challenge scores, 2×2 matrix | ✅ |
@@ -38,6 +38,7 @@ The product name is configuration (`NEXT_PUBLIC_PRODUCT_NAME`), so the platform 
 | Firestore + Storage security rules (tenant isolation; credentials server-only) | ✅ |
 | **Pilot the owl** (mascot): guides AI-provider setup, shows live backend activity, reacts to success/failure | ✅ |
 | **Case assistant**: chat that answers only from the completed case, with citations and out-of-scope refusal | ✅ |
+| Knowledge base resource links (shared with the AI agents as titles + notes), collapsible sidebar, name-first account menu | ✅ |
 | Brand: logo upload, heading/body fonts, tagline, colour presets, live cover preview — applied to all exports | ✅ |
 | File upload & data analysis, logo/template uploads, RAG, SSO, collaboration invites | Roadmap (see below) |
 

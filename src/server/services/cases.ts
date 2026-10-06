@@ -26,6 +26,7 @@ import { findQuestion, nextQuestions, readiness, stageCoverage, sufficiencyState
 import { assessMaturity } from "@/engine/maturity";
 import { overallProgress, stageProgress } from "@/engine/progress";
 import { prioritize } from "@/engine/prioritization";
+import { resourcesForAgents } from "./resources";
 import { getIndustry, industryIdFromName } from "@/knowledge/industries";
 import type { AuthContext } from "../auth";
 import { badRequest, HttpError, notFound } from "../errors";
@@ -172,7 +173,7 @@ async function withAi<T>(
   auth: AuthContext,
   c: Case,
   operation: string,
-  fn: (deps: { gateway: Awaited<ReturnType<typeof gatewayFor>>; call: { organizationId: string; userId: string; caseId: string }; progress: ActivityRecorder }) => Promise<T>,
+  fn: (deps: { gateway: Awaited<ReturnType<typeof gatewayFor>>; call: { organizationId: string; userId: string; caseId: string }; progress: ActivityRecorder; references?: string }) => Promise<T>,
   opts: { flagPending?: boolean } = {},
 ): Promise<T> {
   await assertAiQuota(auth.orgId, await orgPlan(auth.orgId));
@@ -183,7 +184,9 @@ async function withAi<T>(
   const progress = new ActivityRecorder(auth.orgId, c.id, operation);
   progress.step("Started", `${Object.keys(c.context.fields).length} context facts · ${c.selectedFrameworks.length} diagnostic frameworks selected`);
   try {
-    const result = await fn({ gateway, call: { organizationId: auth.orgId, userId: auth.uid, caseId: c.id }, progress });
+    const references = operation === "chat" ? undefined : await resourcesForAgents(auth.orgId).catch(() => undefined);
+    if (references) progress.step("Knowledge base", `${references.split("\n").length} organization reference link(s) shared with the agents`);
+    const result = await fn({ gateway, call: { organizationId: auth.orgId, userId: auth.uid, caseId: c.id }, progress, ...(references ? { references } : {}) });
     await progress.finish("succeeded");
     return result;
   } catch (err) {

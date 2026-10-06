@@ -8,5 +8,5 @@ export default defineConfig({
       "server-only": path.resolve(__dirname, "test/server-only-stub.ts"),
     },
   },
-  test: { environment: "node", include: ["src/**/*.test.ts"], env: { GROWTHPILOT_DEMO_MODE: "true" } },
+  test: { environment: "node", include: ["src/**/*.test.ts", "src/**/*.test.tsx"], env: { GROWTHPILOT_DEMO_MODE: "true" } },
 });
