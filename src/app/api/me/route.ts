@@ -1,5 +1,5 @@
 import { api, readJson } from "@/server/http";
-import { BootstrapSchema, bootstrapAccount, deleteAccount, getMe } from "@/server/services/org";
+import { BootstrapSchema, PreferencesSchema, bootstrapAccount, deleteAccount, getMe, updatePreferences } from "@/server/services/org";
 import { adminAuth } from "@/server/firebaseAdmin";
 import { env } from "@/server/env";
 
@@ -16,3 +16,6 @@ export const DELETE = api({ rpm: 5 }, async (req, auth) => {
   if (!env.demoMode) await adminAuth().deleteUser(auth.uid);
   return { deleted: true };
 });
+
+/** Update the signed-in user's preferences (e.g. mascot). */
+export const PATCH = api({ rpm: 30 }, async (req, auth) => updatePreferences(auth, PreferencesSchema.parse(await readJson(req))));

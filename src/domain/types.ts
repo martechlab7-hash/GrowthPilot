@@ -555,6 +555,8 @@ export interface UserProfile {
   email: string;
   displayName: string;
   role: Role;
+  /** Preferred mascot character (see components/mascot/registry); "none" hides it. */
+  mascot?: string;
   createdAt: string;
   updatedAt: string;
 }

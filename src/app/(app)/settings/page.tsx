@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Button, Card, CardBody, CardHeader, ErrorNote, Input } from "@/components/ui";
 import { apiFetch } from "@/lib/client/api";
 import { useAuth } from "@/lib/client/auth";
+import { MascotPicker } from "@/components/mascot/MascotPicker";
 
 export default function SettingsPage() {
   const { me, signOut } = useAuth();
@@ -25,6 +26,7 @@ export default function SettingsPage() {
           <div><div className="text-muted">Role · Plan</div>{me.profile.role} · {me.organization?.plan}</div>
         </CardBody>
       </Card>
+      <MascotPicker />
       <Card>
         <CardHeader title="Privacy" description="Cases and their history can be exported or deleted from each case's History tab. Deleting your account removes your profile; if you are the only member, all organization data is deleted." />
         <CardBody className="space-y-3">
