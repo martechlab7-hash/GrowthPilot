@@ -2,6 +2,7 @@ import { createPrivateKey } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { env, serverConfigProblems } from "@/server/env";
 import { adminAuth, adminDb } from "@/server/firebaseAdmin";
+import { parseKeyring } from "@/server/keyring";
 
 export const dynamic = "force-dynamic";
 
@@ -38,9 +39,16 @@ export async function GET(req: NextRequest) {
       detail: env.firebaseClientEmail?.endsWith(".iam.gserviceaccount.com") ? "Service account email looks valid" : "FIREBASE_CLIENT_EMAIL should be the client_email from the service-account JSON (…@….iam.gserviceaccount.com)",
     });
 
-    const keys = env.encryptionKeys.split(",").map((s) => s.trim()).filter(Boolean);
-    const keysOk = keys.length > 0 && keys.every((k) => Buffer.from(k.includes(":") ? k.split(":", 2)[1]! : k, "base64").length === 32);
-    checks.push({ name: "encryption_keys", ok: keysOk, detail: keysOk ? "CREDENTIALS_ENCRYPTION_KEYS valid" : 'CREDENTIALS_ENCRYPTION_KEYS must be "v1:<base64 of 32 random bytes>"' });
+    try {
+      const keys = parseKeyring(env.encryptionKeys);
+      checks.push({
+        name: "encryption_keys",
+        ok: keys.length > 0,
+        detail: keys.length ? `CREDENTIALS_ENCRYPTION_KEYS valid (${keys.map((k) => k.version).join(", ")})` : "CREDENTIALS_ENCRYPTION_KEYS is empty",
+      });
+    } catch (err) {
+      checks.push({ name: "encryption_keys", ok: false, detail: (err as Error).message });
+    }
 
     if (!missing.length) {
       try {
