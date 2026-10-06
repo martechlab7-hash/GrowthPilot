@@ -13,3 +13,16 @@ export const env = {
   platformProvider: process.env.PLATFORM_AI_PROVIDER as "openai" | "anthropic" | "gemini" | undefined,
   platformApiKey: process.env.PLATFORM_AI_API_KEY,
 };
+
+/** Server configuration problems, reported instead of failing opaquely. */
+export function serverConfigProblems(): string[] {
+  if (env.demoMode) return [];
+  const missing: string[] = [];
+  if (!env.firebaseProjectId) missing.push("FIREBASE_PROJECT_ID");
+  // On Vercel there are no Application Default Credentials: a service account is required.
+  if (process.env.VERCEL && (!env.firebaseClientEmail || !env.firebasePrivateKey)) {
+    missing.push("FIREBASE_CLIENT_EMAIL", "FIREBASE_PRIVATE_KEY");
+  }
+  if (!env.encryptionKeys) missing.push("CREDENTIALS_ENCRYPTION_KEYS");
+  return missing;
+}
