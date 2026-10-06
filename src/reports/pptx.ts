@@ -1,6 +1,7 @@
 import "server-only";
 import PptxGenJS from "pptxgenjs";
 import type { Block, ReportModel, ReportSection } from "./model";
+import { fit, logoOf } from "./brandAssets";
 
 const hex = (c: string) => c.replace("#", "").toUpperCase();
 const MAX_ROWS = 6;
@@ -18,6 +19,9 @@ export async function renderPptx(m: ReportModel): Promise<Buffer> {
   pptx.layout = "LAYOUT_WIDE"; // 13.33 x 7.5 in
   pptx.title = m.title;
   const font = m.brand.fontFamily;
+  const headingFont = m.brand.headingFont || font;
+  const logo = logoOf(m.brand);
+  const logoData = logo ? `image/png;base64,${logo.base64}` : null;
   const primary = hex(m.brand.primaryColor);
   const secondary = hex(m.brand.secondaryColor);
   const accent = hex(m.brand.accentColor);
@@ -28,6 +32,7 @@ export async function renderPptx(m: ReportModel): Promise<Buffer> {
     objects: [
       { rect: { x: 0, y: 0, w: 13.33, h: 0.12, fill: { color: primary } } },
       { text: { text: m.companyName || m.title, options: { x: 0.5, y: 7.05, w: 8, h: 0.3, fontSize: 9, color: "7A8699", fontFace: font } } },
+      ...(logo && logoData ? [{ image: { data: logoData, x: 13.33 - 0.5 - fit(logo.width, logo.height, 1.3, 0.4).width, y: 0.25, ...fit(logo.width, logo.height, 1.3, 0.4) } }] : []),
     ],
     slideNumber: { x: 12.4, y: 7.05, fontSize: 9, color: "7A8699", fontFace: font },
   });
@@ -36,7 +41,14 @@ export async function renderPptx(m: ReportModel): Promise<Buffer> {
   const cover = pptx.addSlide();
   cover.background = { color: primary };
   cover.addShape("rect", { x: 0.6, y: 3.05, w: 1.2, h: 0.08, fill: { color: accent } });
-  cover.addText(m.title, { x: 0.6, y: 1.6, w: 12, h: 1.3, fontSize: 40, bold: true, color: "FFFFFF", fontFace: font });
+  if (logo && logoData) {
+    // White card behind the logo so dark logos stay visible on the brand colour.
+    const size = fit(logo.width, logo.height, 2.6, 0.9);
+    cover.addShape("roundRect", { x: 0.5, y: 0.45, w: size.width + 0.3, h: size.height + 0.24, fill: { color: "FFFFFF" }, rectRadius: 0.08 });
+    cover.addImage({ data: logoData, x: 0.65, y: 0.57, ...size });
+  }
+  cover.addText(m.title, { x: 0.6, y: 1.6, w: 12, h: 1.3, fontSize: 40, bold: true, color: "FFFFFF", fontFace: headingFont });
+  if (m.brand.tagline) cover.addText(m.brand.tagline, { x: 0.6, y: 3.9, w: 12, h: 0.5, fontSize: 14, italic: true, color: "DCE6F5", fontFace: font });
   cover.addText(m.subtitle, { x: 0.6, y: 3.3, w: 12, h: 0.6, fontSize: 18, color: "DCE6F5", fontFace: font });
   cover.addText(`${m.companyName ? `${m.companyName} · ` : ""}${m.generatedAt.slice(0, 10)}`, { x: 0.6, y: 6.3, w: 12, h: 0.4, fontSize: 12, color: "DCE6F5", fontFace: font });
 
@@ -45,7 +57,7 @@ export async function renderPptx(m: ReportModel): Promise<Buffer> {
     for (const page of paginate(s)) {
       const slide = pptx.addSlide({ masterName: "CONTENT" });
       slide.addText(s.title.replace(/^\d+\.\s*/, "").toUpperCase(), { x: 0.5, y: 0.3, w: 12, h: 0.3, fontSize: 10, bold: true, color: secondary, fontFace: font, charSpacing: 1 });
-      slide.addText(clip(s.headline, 140), { x: 0.5, y: 0.6, w: 12.3, h: 0.9, fontSize: 22, bold: true, color: primary, fontFace: font, valign: "top" });
+      slide.addText(clip(s.headline, 140), { x: 0.5, y: 0.6, w: 11, h: 0.9, fontSize: 22, bold: true, color: primary, fontFace: headingFont, valign: "top" });
       let y = 1.6;
       for (const b of page) {
         y = drawBlock(slide, b, y, { font, primary, accent });

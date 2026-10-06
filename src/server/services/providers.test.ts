@@ -4,7 +4,7 @@ import { setStore } from "../store";
 import { createProvider, gatewayFor } from "./providers";
 
 describe("provider preference", () => {
-  beforeEach(() => setStore(new MemoryStore()));
+  beforeEach(() => setStore(new MemoryStore(undefined, true)));
 
   it("runs the chosen provider/model first and keeps the rest as fallbacks", async () => {
     const a = await createProvider("o1", "u", { kind: "custom", apiKey: "sk-aaaaaaaaaaaa", baseUrl: "https://a.example.com/v1", models: { reasoning: "model-a" } });

@@ -1,6 +1,7 @@
 import "server-only";
 import PDFDocument from "pdfkit";
 import type { Block, ReportModel } from "./model";
+import { fit, logoOf, pdfFonts } from "./brandAssets";
 
 const MARGIN = 54;
 
@@ -16,11 +17,19 @@ export async function renderPdf(input: ReportModel): Promise<Buffer> {
   });
   const width = doc.page.width - MARGIN * 2;
   const { primaryColor: primary, secondaryColor: secondary, accentColor: accent } = m.brand;
+  const fonts = pdfFonts(m.brand);
+  const logo = logoOf(input.brand); // from the unsanitised model: data URLs are ASCII anyway
 
   // Cover
   doc.rect(0, 0, doc.page.width, doc.page.height).fill(primary);
   doc.rect(MARGIN, 330, 70, 4).fill(accent);
-  doc.fillColor("#FFFFFF").font("Helvetica-Bold").fontSize(30).text(m.title, MARGIN, 220, { width });
+  if (logo) {
+    const size = fit(logo.width, logo.height, 180, 64);
+    doc.roundedRect(MARGIN - 10, 90, size.width + 20, size.height + 16, 8).fill("#FFFFFF");
+    doc.image(logo.data, MARGIN, 98, size);
+  }
+  doc.fillColor("#FFFFFF").font(fonts.heading).fontSize(30).text(m.title, MARGIN, 220, { width });
+  if (m.brand.tagline) doc.font(fonts.body).fontSize(12).fillColor("#DCE6F5").text(m.brand.tagline, MARGIN, 300, { width });
   doc.font("Helvetica").fontSize(14).fillColor("#DCE6F5").text(m.subtitle, MARGIN, 350, { width });
   doc.fontSize(11).text(`${m.companyName ? `${m.companyName} · ` : ""}${m.generatedAt.slice(0, 10)}`, MARGIN, doc.page.height - 120, { width });
 
@@ -33,7 +42,7 @@ export async function renderPdf(input: ReportModel): Promise<Buffer> {
     // The executive summary stands alone; later sections flow, never orphaning a heading.
     if (i > 0 && (m.sections[i - 1]!.id === "executive" || doc.y > doc.page.height - MARGIN - 160)) doc.addPage();
     else if (i > 0) doc.moveDown(1.2);
-    doc.font("Helvetica-Bold").fontSize(18).fillColor(primary).text(s.title, MARGIN, doc.y, { width });
+    doc.font(fonts.heading).fontSize(18).fillColor(primary).text(s.title, MARGIN, doc.y, { width });
     doc.moveDown(0.6);
     for (const b of s.blocks) renderBlock(doc, b, width, { primary, accent, ensure });
   });
@@ -44,6 +53,7 @@ export async function renderPdf(input: ReportModel): Promise<Buffer> {
     doc.switchToPage(i);
     doc.font("Helvetica").fontSize(8).fillColor("#7A8699");
     doc.text(`${m.companyName ? `${m.companyName} · ` : ""}${m.title}`, MARGIN, 24, { width, align: "right", lineBreak: false });
+    if (logo) doc.image(logo.data, MARGIN, 18, fit(logo.width, logo.height, 70, 16));
     doc.rect(MARGIN, 38, width, 0.6).fill(secondary);
     doc.fillColor("#7A8699").text(`Page ${i} of ${range.count - 1}`, MARGIN, doc.page.height - 36, { width, align: "center", lineBreak: false });
   }

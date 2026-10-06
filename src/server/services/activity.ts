@@ -34,6 +34,7 @@ const OPERATION_LABELS: Record<string, string> = {
   plan: "Activation & measurement plan",
   report: "Strategy report",
   interview: "Adaptive interview questions",
+  chat: "Answering your question",
 };
 
 const col = () => getStore().collection<CaseActivity>("case_activity");

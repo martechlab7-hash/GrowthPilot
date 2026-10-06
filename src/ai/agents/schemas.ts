@@ -193,3 +193,10 @@ export const ReportOutput = z.object({
   dependencies: z.array(z.string()),
   nextSteps: z.array(z.string()),
 });
+
+export const ChatOutput = z.object({
+  answer: z.string().min(1).max(6000),
+  citations: z.array(z.string().max(160)).max(8),
+  outOfScope: z.boolean(),
+  followUps: z.array(z.string().max(200)).max(3),
+});

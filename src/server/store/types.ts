@@ -28,6 +28,7 @@ export const COLLECTIONS = [
   "brand_profiles",
   "usage_counters",
   "case_activity",
+  "case_chats",
 ] as const;
 export type CollectionName = (typeof COLLECTIONS)[number];
 

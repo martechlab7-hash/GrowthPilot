@@ -608,8 +608,20 @@ export const BrandProfileSchema = z.object({
   primaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
   secondaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
   accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  /** Body font (Word/PowerPoint/web). */
   fontFamily: z.string().max(60),
+  /** Heading font; falls back to the body font. */
+  headingFont: z.string().max(60).optional(),
   visualStyle: z.enum(["consulting", "minimal", "bold"]),
+  tagline: z.string().max(160).optional(),
+  /** Logo as a PNG data URL (resized client-side, max ~350 KB). */
+  logoDataUrl: z
+    .string()
+    .regex(/^data:image\/png;base64,[A-Za-z0-9+/=]+$/, "Logo must be a PNG data URL")
+    .max(480_000, "Logo is too large — use an image under ~350 KB")
+    .optional(),
+  logoWidth: z.number().int().min(1).max(4000).optional(),
+  logoHeight: z.number().int().min(1).max(4000).optional(),
 });
 export type BrandProfile = z.infer<typeof BrandProfileSchema>;
 
@@ -619,5 +631,6 @@ export const DEFAULT_BRAND: BrandProfile = {
   secondaryColor: "#2F6FDE",
   accentColor: "#E8A33D",
   fontFamily: "Calibri",
+  headingFont: "Calibri",
   visualStyle: "consulting",
 };
