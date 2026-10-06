@@ -35,7 +35,7 @@ export async function verifyRequest(req: NextRequest): Promise<{ uid: string; em
     if (code === "auth/id-token-expired" || code === "auth/id-token-revoked" || code === "auth/user-disabled") {
       throw new HttpError(401, "Session expired. Please sign in again.", "UNAUTHENTICATED");
     }
-    if (code === "auth/argument-error" && /project|aud/i.test(message)) {
+    if (code === "auth/argument-error" && /"aud" \(audience\) claim/.test(message)) {
       throw new HttpError(500, "Server Firebase project does not match the web app. FIREBASE_PROJECT_ID must equal NEXT_PUBLIC_FIREBASE_PROJECT_ID.", "SERVER_MISCONFIGURED");
     }
     if (/credential|private key|PEM|DECODER|invalid_grant|service account/i.test(message)) {
