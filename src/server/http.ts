@@ -2,6 +2,7 @@ import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
 import { ZodError } from "zod";
 import { AIUnavailableError } from "@/ai/types";
+import { serverConfigProblems } from "./env";
 import { log } from "./logger";
 import { rateLimit } from "./rateLimit";
 import { requireUser, type AuthContext } from "./auth";
@@ -48,6 +49,10 @@ export function api<P = Record<string, string>>(
     const route = `${req.method} ${req.nextUrl.pathname}`;
     const started = Date.now();
     try {
+      const missing = serverConfigProblems();
+      if (missing.length) {
+        throw new HttpError(503, `Server is not configured. Missing environment variables: ${missing.join(", ")}`, "SERVER_NOT_CONFIGURED");
+      }
       const auth = await requireUser(req, { allowUnonboarded: opts.allowUnonboarded });
       if (!rateLimit(`u:${auth.uid}:${opts.rpm ?? 120}`, opts.rpm ?? 120, opts.rpm ?? 120)) {
         throw new HttpError(429, "Too many requests. Please slow down.", "RATE_LIMITED");

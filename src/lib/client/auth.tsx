@@ -12,7 +12,7 @@ import {
 } from "firebase/auth";
 import type { Organization, UserProfile } from "@/domain/types";
 import { apiFetch } from "./api";
-import { firebaseAuth, isDemoMode } from "./firebase";
+import { firebaseAuth, isDemoMode, isFirebaseConfigured, missingFirebaseConfig } from "./firebase";
 
 interface SessionUser {
   uid: string;
@@ -38,6 +38,34 @@ interface AuthState {
 const Ctx = createContext<AuthState | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  if (!isDemoMode && !isFirebaseConfigured) return <SetupRequired missing={missingFirebaseConfig} />;
+  return <ConfiguredAuthProvider>{children}</ConfiguredAuthProvider>;
+}
+
+/** Shown instead of crashing when the deployment has no Firebase configuration. */
+function SetupRequired({ missing }: { missing: string[] }) {
+  return (
+    <main className="mx-auto flex min-h-screen max-w-xl flex-col justify-center px-6">
+      <h1 className="text-2xl font-semibold">Setup required</h1>
+      <p className="mt-2 text-sm text-muted">
+        This deployment has no Firebase configuration. Add these environment variables in your hosting provider
+        (e.g. Vercel → Project → Settings → Environment Variables), then redeploy — <code>NEXT_PUBLIC_*</code> values are
+        baked in at build time.
+      </p>
+      <ul className="mt-4 space-y-1 rounded-lg border border-line bg-white p-4 font-mono text-sm">
+        {missing.map((m) => <li key={m}>{m}</li>)}
+      </ul>
+      <p className="mt-4 text-sm text-muted">
+        Server-side variables are also required: <code>FIREBASE_PROJECT_ID</code>, <code>FIREBASE_CLIENT_EMAIL</code>,{" "}
+        <code>FIREBASE_PRIVATE_KEY</code> and <code>CREDENTIALS_ENCRYPTION_KEYS</code>. See <code>.env.example</code>.
+        To preview without Firebase, set <code>GROWTHPILOT_DEMO_MODE=true</code> and <code>NEXT_PUBLIC_DEMO_MODE=true</code>{" "}
+        (single shared demo user — not for real data).
+      </p>
+    </main>
+  );
+}
+
+function ConfiguredAuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [me, setMe] = useState<Me | null>(null);
   const [loading, setLoading] = useState(true);

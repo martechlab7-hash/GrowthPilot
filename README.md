@@ -54,6 +54,7 @@ Open http://localhost:3000, create a workspace, then add an AI provider under **
 3. Generate the credential encryption key: `openssl rand -base64 32` → `CREDENTIALS_ENCRYPTION_KEYS=v1:<key>`. To rotate, append `v2:<new>`; old secrets still decrypt.
 4. Deploy rules and indexes: `firebase deploy --only firestore:rules,firestore:indexes,storage`.
 5. Deploy the Next.js app to Vercel (or Cloud Run). Long AI routes declare `maxDuration`.
+   On Vercel, add every variable from `.env.example` under Project → Settings → Environment Variables, then **redeploy** (`NEXT_PUBLIC_*` values are inlined at build time). `GET /api/health` reports any missing server variables; the UI shows a "Setup required" screen if the Firebase web config is missing.
 
 ## Scripts
 

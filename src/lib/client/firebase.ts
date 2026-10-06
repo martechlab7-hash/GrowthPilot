@@ -13,6 +13,18 @@ const config = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
+/** NEXT_PUBLIC_* values are inlined at build time: redeploy after changing them. */
+export const missingFirebaseConfig: string[] = [
+  ["NEXT_PUBLIC_FIREBASE_API_KEY", config.apiKey],
+  ["NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN", config.authDomain],
+  ["NEXT_PUBLIC_FIREBASE_PROJECT_ID", config.projectId],
+  ["NEXT_PUBLIC_FIREBASE_APP_ID", config.appId],
+]
+  .filter(([, v]) => !v)
+  .map(([k]) => k as string);
+
+export const isFirebaseConfigured = missingFirebaseConfig.length === 0;
+
 let app: FirebaseApp | undefined;
 
 export function firebaseAuth(): Auth {
