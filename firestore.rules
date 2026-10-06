@@ -1,0 +1,52 @@
+rules_version = '2';
+
+// GrowthPilot Firestore security rules.
+//
+// All writes go through the server (Firebase Admin SDK), which enforces RBAC,
+// validation and tenant isolation. Clients may only read documents belonging to
+// their own organization, and never read credentials, usage or audit data.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function profile() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+    function inOrg(orgId) { return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && profile().organizationId == orgId; }
+
+    match /users/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow write: if false;
+    }
+
+    match /organizations/{orgId} {
+      allow read: if inOrg(orgId);
+      allow write: if false;
+    }
+
+    match /cases/{caseId} {
+      allow read: if inOrg(resource.data.organizationId);
+      allow write: if false;
+    }
+
+    match /case_versions/{id} {
+      allow read: if inOrg(resource.data.organizationId);
+      allow write: if false;
+    }
+
+    match /decision_logs/{id} {
+      allow read: if inOrg(resource.data.organizationId);
+      allow write: if false;
+    }
+
+    match /brand_profiles/{orgId} {
+      allow read: if inOrg(orgId);
+      allow write: if false;
+    }
+
+    // Encrypted API credentials, metering and audit trails are server-only.
+    match /ai_providers/{id} { allow read, write: if false; }
+    match /ai_usage/{id} { allow read, write: if false; }
+    match /usage_counters/{id} { allow read, write: if false; }
+    match /audit_logs/{id} { allow read, write: if false; }
+
+    match /{document=**} { allow read, write: if false; }
+  }
+}

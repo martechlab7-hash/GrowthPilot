@@ -1,0 +1,85 @@
+import "server-only";
+import {
+  AlignmentType, BorderStyle, Document, Footer, Header, HeadingLevel, Packer, PageNumber,
+  Paragraph, ShadingType, Table, TableCell, TableRow, TextRun, WidthType,
+} from "docx";
+import type { Block, ReportModel } from "./model";
+
+const hex = (c: string) => c.replace("#", "").toUpperCase();
+
+function cellParas(text: string, opts: { bold?: boolean; color?: string; font: string }) {
+  return text.split("\n").map((line) => new Paragraph({ children: [new TextRun({ text: line, bold: opts.bold, color: opts.color, font: opts.font, size: 18 })] }));
+}
+
+function renderBlock(b: Block, m: ReportModel): (Paragraph | Table)[] {
+  const font = m.brand.fontFamily;
+  switch (b.type) {
+    case "paragraph":
+      return [new Paragraph({ spacing: { after: 120 }, children: [new TextRun({ text: b.text, font, size: 21 })] })];
+    case "bullets":
+      return b.items.map((i) => new Paragraph({ bullet: { level: 0 }, children: [new TextRun({ text: i, font, size: 21 })] }));
+    case "callout":
+      return [
+        new Paragraph({
+          shading: { type: ShadingType.CLEAR, fill: "F2F5F9", color: "auto" },
+          border: { left: { style: BorderStyle.SINGLE, size: 18, color: hex(m.brand.accentColor), space: 6 } },
+          spacing: { before: 120 },
+          children: [new TextRun({ text: b.label, bold: true, font, size: 20, color: hex(m.brand.primaryColor) })],
+        }),
+        ...b.text.split("\n").map((line) => new Paragraph({
+          shading: { type: ShadingType.CLEAR, fill: "F2F5F9", color: "auto" },
+          border: { left: { style: BorderStyle.SINGLE, size: 18, color: hex(m.brand.accentColor), space: 6 } },
+          spacing: { after: 0 },
+          children: [new TextRun({ text: line, font, size: 20 })],
+        })),
+        new Paragraph({ text: "" }),
+      ];
+    case "table":
+      return [
+        new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          rows: [
+            new TableRow({
+              tableHeader: true,
+              children: b.headers.map((h) => new TableCell({
+                shading: { type: ShadingType.CLEAR, fill: hex(m.brand.primaryColor), color: "auto" },
+                children: cellParas(h, { bold: true, color: "FFFFFF", font }),
+              })),
+            }),
+            ...b.rows.map((r) => new TableRow({ children: r.map((v) => new TableCell({ children: cellParas(v, { font }) })) })),
+          ],
+        }),
+        new Paragraph({ text: "" }),
+      ];
+  }
+}
+
+export async function renderDocx(m: ReportModel): Promise<Buffer> {
+  const font = m.brand.fontFamily;
+  const doc = new Document({
+    creator: m.companyName || "GrowthPilot",
+    title: m.title,
+    styles: { default: { document: { run: { font } } } },
+    sections: [
+      {
+        properties: {},
+        headers: { default: new Header({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [new TextRun({ text: `${m.companyName ? `${m.companyName} · ` : ""}${m.title}`, size: 16, color: "7A8699", font })] })] }) },
+        footers: {
+          default: new Footer({
+            children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ children: ["Page ", PageNumber.CURRENT, " of ", PageNumber.TOTAL_PAGES], size: 16, color: "7A8699", font })] })],
+          }),
+        },
+        children: [
+          new Paragraph({ spacing: { before: 2400 }, children: [new TextRun({ text: m.title, bold: true, size: 56, color: hex(m.brand.primaryColor), font })] }),
+          new Paragraph({ children: [new TextRun({ text: m.subtitle, size: 28, color: hex(m.brand.secondaryColor), font })] }),
+          new Paragraph({ spacing: { after: 2400 }, children: [new TextRun({ text: `${m.companyName ? `${m.companyName} · ` : ""}${m.generatedAt.slice(0, 10)}`, size: 22, color: "7A8699", font })] }),
+          ...m.sections.flatMap((s) => [
+            new Paragraph({ heading: HeadingLevel.HEADING_1, pageBreakBefore: s.id === "executive" || s.id === "objective", spacing: { before: 360, after: 120 }, children: [new TextRun({ text: s.title, bold: true, color: hex(m.brand.primaryColor), size: 32, font })] }),
+            ...s.blocks.flatMap((b) => renderBlock(b, m)),
+          ]),
+        ],
+      },
+    ],
+  });
+  return Packer.toBuffer(doc);
+}
