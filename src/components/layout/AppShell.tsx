@@ -29,7 +29,7 @@ const NAV = [
 ];
 
 export function AppShell({ children }: { children: ReactNode }) {
-  const { user, me, loading, signOut } = useAuth();
+  const { user, me, meError, loading, signOut, refreshMe } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -39,6 +39,21 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (!user) router.replace("/login");
     else if (me && !me.onboarded) router.replace("/onboarding");
   }, [loading, user, me, router]);
+
+  if (!loading && user && !me && meError) {
+    return (
+      <div className="flex min-h-screen items-center justify-center px-4">
+        <div role="alert" className="max-w-md space-y-3 rounded-xl border border-red-200 bg-white p-6 text-sm">
+          <p className="font-semibold text-red-700">Signed in as {user.email}, but your account could not be loaded.</p>
+          <p className="text-slate-700">{meError}</p>
+          <div className="flex gap-3">
+            <button className="font-medium text-brand-600 underline" onClick={() => void refreshMe()}>Retry</button>
+            <button className="font-medium text-brand-600 underline" onClick={() => signOut().then(() => router.replace("/login"))}>Sign out</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (loading || !user || !me?.onboarded) {
     return <div className="flex min-h-screen items-center justify-center"><Spinner label="Loading workspace…" /></div>;
