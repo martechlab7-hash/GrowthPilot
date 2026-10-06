@@ -5,6 +5,7 @@ import { AlertCircle, CheckCircle2, ChevronDown, Loader2 } from "lucide-react";
 import type { CaseActivity } from "@/server/services/activity";
 import { apiFetch } from "@/lib/client/api";
 import { cn } from "@/lib/cn";
+import { Owl } from "@/components/mascot";
 
 /**
  * Shows what the server is doing during an AI run: which agent, which
@@ -38,21 +39,27 @@ export function ActivityPanel({ caseId, busy }: { caseId: string; busy: string |
   const expanded = live || open;
   const elapsed = activity ? Math.max(0, Math.round(((activity.finishedAt ? Date.parse(activity.finishedAt) : now) - Date.parse(activity.startedAt)) / 1000)) : 0;
   const status = live ? "running" : activity?.status;
+  const lastStep = activity?.steps.at(-1);
 
   return (
-    <div className={cn("mb-4 rounded-xl border bg-white", status === "failed" ? "border-red-200" : status === "running" ? "border-brand-600/30" : "border-line")}>
-      <button type="button" onClick={() => setOpen(!open)} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm" aria-expanded={expanded}>
-        <span className="flex min-w-0 items-center gap-2">
-          {status === "running" ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-brand-600" /> : status === "failed" ? <AlertCircle className="h-4 w-4 shrink-0 text-red-600" /> : <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />}
-          <span className="truncate">
-            <span className="font-medium">{status === "running" ? "Working" : status === "failed" ? "Last run failed" : "Last run completed"}:</span>{" "}
-            {activity?.operation ?? busy}
-            {activity?.model && <span className="text-muted"> · {activity.provider} · {activity.model}</span>}
-            {activity && <span className="text-muted"> · {elapsed}s</span>}
+    <div className={cn("mb-4 overflow-hidden rounded-2xl border bg-white shadow-card transition", status === "failed" ? "border-red-200" : status === "running" ? "border-brand-100 ring-4 ring-brand-500/10" : "border-line")}>
+      <div className={cn("flex items-center gap-3 px-3 py-2", status === "running" && "bg-gradient-to-r from-brand-50 to-white")}>
+        <Owl size={48} mood={status === "running" ? "sparkle" : status === "failed" ? "dizzy" : null} label="Pilot" />
+        <button type="button" onClick={() => setOpen(!open)} className="flex min-w-0 flex-1 items-center justify-between gap-3 py-1 text-left text-sm" aria-expanded={expanded}>
+          <span className="min-w-0">
+            <span className="flex items-center gap-1.5 font-medium">
+              {status === "running" ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-brand-600" /> : status === "failed" ? <AlertCircle className="h-3.5 w-3.5 shrink-0 text-red-600" /> : <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" />}
+              {status === "running" ? "Pilot is working" : status === "failed" ? "Last run failed" : "Last run completed"}
+              <span className="font-normal text-muted">· {activity?.operation ?? busy}</span>
+            </span>
+            <span className="block truncate text-xs text-muted">
+              {status === "running" && lastStep ? lastStep.label : activity?.model ? `${activity.provider} · ${activity.model}` : "Preparing…"}
+              {activity && ` · ${elapsed}s`}
+            </span>
           </span>
-        </span>
-        {!live && <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted transition", open && "rotate-180")} />}
-      </button>
+          {!live && <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted transition", open && "rotate-180")} />}
+        </button>
+      </div>
       {expanded && activity && (
         <ol className="space-y-2 border-t border-line px-4 py-3 text-sm">
           {activity.steps.map((s, i) => (

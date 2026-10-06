@@ -32,7 +32,7 @@ export async function renderPptx(m: ReportModel): Promise<Buffer> {
     objects: [
       { rect: { x: 0, y: 0, w: 13.33, h: 0.12, fill: { color: primary } } },
       { text: { text: m.companyName || m.title, options: { x: 0.5, y: 7.05, w: 8, h: 0.3, fontSize: 9, color: "7A8699", fontFace: font } } },
-      ...(logo && logoData ? [{ image: { data: logoData, x: 13.33 - 0.5 - fit(logo.width, logo.height, 1.3, 0.4).width, y: 0.25, ...fit(logo.width, logo.height, 1.3, 0.4) } }] : []),
+      ...(logo && logoData ? [{ image: { data: logoData, x: 13.33 - 0.5 - box(fit(logo.width, logo.height, 1.3, 0.4)).w, y: 0.25, ...box(fit(logo.width, logo.height, 1.3, 0.4)) } }] : []),
     ],
     slideNumber: { x: 12.4, y: 7.05, fontSize: 9, color: "7A8699", fontFace: font },
   });
@@ -43,8 +43,8 @@ export async function renderPptx(m: ReportModel): Promise<Buffer> {
   cover.addShape("rect", { x: 0.6, y: 3.05, w: 1.2, h: 0.08, fill: { color: accent } });
   if (logo && logoData) {
     // White card behind the logo so dark logos stay visible on the brand colour.
-    const size = fit(logo.width, logo.height, 2.6, 0.9);
-    cover.addShape("roundRect", { x: 0.5, y: 0.45, w: size.width + 0.3, h: size.height + 0.24, fill: { color: "FFFFFF" }, rectRadius: 0.08 });
+    const size = box(fit(logo.width, logo.height, 2.6, 0.9));
+    cover.addShape("roundRect", { x: 0.5, y: 0.45, w: size.w + 0.3, h: size.h + 0.24, fill: { color: "FFFFFF" }, rectRadius: 0.08 });
     cover.addImage({ data: logoData, x: 0.65, y: 0.57, ...size });
   }
   cover.addText(m.title, { x: 0.6, y: 1.6, w: 12, h: 1.3, fontSize: 40, bold: true, color: "FFFFFF", fontFace: headingFont });
@@ -67,6 +67,11 @@ export async function renderPptx(m: ReportModel): Promise<Buffer> {
   }
   const out = (await pptx.write({ outputType: "nodebuffer" })) as Buffer;
   return out;
+}
+
+/** pptxgenjs sizes use w/h (inches). */
+function box(s: { width: number; height: number }) {
+  return { w: s.width, h: s.height };
 }
 
 function paginate(s: ReportSection): Block[][] {

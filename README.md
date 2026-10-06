@@ -36,6 +36,9 @@ The product name is configuration (`NEXT_PUBLIC_PRODUCT_NAME`), so the platform 
 | Usage & cost metering, plan limits, rate limiting, audit log, structured logs | ✅ |
 | Privacy: export case JSON, delete case, delete account (cascades org data) | ✅ |
 | Firestore + Storage security rules (tenant isolation; credentials server-only) | ✅ |
+| **Pilot the owl** (mascot): guides AI-provider setup, shows live backend activity, reacts to success/failure | ✅ |
+| **Case assistant**: chat that answers only from the completed case, with citations and out-of-scope refusal | ✅ |
+| Brand: logo upload, heading/body fonts, tagline, colour presets, live cover preview — applied to all exports | ✅ |
 | File upload & data analysis, logo/template uploads, RAG, SSO, collaboration invites | Roadmap (see below) |
 
 ## Quick start (local demo — no Firebase needed)
@@ -92,3 +95,7 @@ src/
 - **Phase 2**: file upload (Excel/CSV/PDF/PPT) with extraction into case context and descriptive/cohort/RFM analysis; logo, brand-guideline PDF and PPT template uploads (Firebase Storage + signed URLs); malware scanning.
 - **Phase 3**: RAG knowledge layer (vector search over frameworks, case studies, internal methodologies); collaboration (invites, comments); queued background jobs for long AI runs.
 - **Phase 4**: enterprise SSO, private knowledge bases, benchmarking, agentic workflows, platform admin console.
+
+## Credits
+
+The mascot is adapted from [page-mascot](https://github.com/nilbuild/page-mascot) by Kamran Ahmed (MIT License). See `src/components/mascot/Mascot.tsx`.
