@@ -1,7 +1,7 @@
 import { createPrivateKey } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { env, serverConfigProblems } from "@/server/env";
-import { adminDb } from "@/server/firebaseAdmin";
+import { adminAuth, adminDb } from "@/server/firebaseAdmin";
 
 export const dynamic = "force-dynamic";
 
@@ -44,7 +44,7 @@ export async function GET(req: NextRequest) {
 
     if (!missing.length) {
       try {
-        await adminDb().collection("organizations").limit(1).get();
+        await adminDb().collection("users").limit(1).get();
         checks.push({ name: "firestore", ok: true, detail: "Connected to Firestore with the service account" });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -56,6 +56,20 @@ export async function GET(req: NextRequest) {
             : /PERMISSION_DENIED/i.test(msg)
               ? "Service account lacks Firestore access. Use a key generated from Project settings → Service accounts."
               : `Firestore connection failed: ${msg.slice(0, 200)}`,
+        });
+      }
+      try {
+        // Session verification (checkRevoked) needs the Auth admin API.
+        await adminAuth().listUsers(1);
+        checks.push({ name: "auth_admin", ok: true, detail: "Service account can use Firebase Authentication" });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        checks.push({
+          name: "auth_admin",
+          ok: false,
+          detail: /CONFIGURATION_NOT_FOUND|configuration/i.test(msg)
+            ? "Firebase Authentication is not initialised. Open Firebase → Authentication → Get started."
+            : `Firebase Auth admin call failed: ${msg.slice(0, 200)}`,
         });
       }
     }
