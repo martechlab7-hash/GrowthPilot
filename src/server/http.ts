@@ -27,7 +27,8 @@ export function errorResponse(err: unknown, route: string) {
     return NextResponse.json({ error: err.message, code: "AI_UNAVAILABLE", details: err.attempts }, { status: 503 });
   }
   log("error", "api.unhandled", { route, message: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack : undefined });
-  return NextResponse.json({ error: "Something went wrong. Your work has been saved.", code: "INTERNAL" }, { status: 500 });
+  const detail = err instanceof Error ? err.message.slice(0, 300) : undefined;
+  return NextResponse.json({ error: `Something went wrong on the server${detail ? `: ${detail}` : ""}. Your work has been saved.`, code: "INTERNAL" }, { status: 500 });
 }
 
 type RouteCtx<P> = { params: Promise<P> };
@@ -48,6 +49,11 @@ export function api<P = Record<string, string>>(
   return async (req: NextRequest, ctx: RouteCtx<P>) => {
     const route = `${req.method} ${req.nextUrl.pathname}`;
     const started = Date.now();
+    const requestId = crypto.randomUUID().slice(0, 8);
+    const withId = (res: Response) => {
+      res.headers.set("x-request-id", requestId);
+      return res;
+    };
     try {
       const missing = serverConfigProblems();
       if (missing.length) {
@@ -61,9 +67,13 @@ export function api<P = Record<string, string>>(
       const params = (await ctx.params) ?? ({} as P);
       const result = await handler(req, auth, params);
       log("info", "api.request", { route, status: 200, ms: Date.now() - started, uid: auth.uid });
-      return result instanceof Response ? result : NextResponse.json(result ?? { ok: true });
+      return withId(result instanceof Response ? result : NextResponse.json(result ?? { ok: true }));
     } catch (err) {
-      return errorResponse(err, route);
+      try {
+        return withId(errorResponse(err, `${route} [${requestId}]`));
+      } catch {
+        return withId(NextResponse.json({ error: "Unexpected server error.", code: "INTERNAL" }, { status: 500 }));
+      }
     }
   };
 }

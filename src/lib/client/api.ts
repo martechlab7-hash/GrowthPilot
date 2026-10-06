@@ -23,9 +23,18 @@ export async function apiFetch<T>(path: string, init: { method?: string; body?: 
     cache: "no-store",
   });
   const text = await res.text();
-  const json = text ? (JSON.parse(text) as Record<string, unknown>) : {};
+  let json: Record<string, unknown> = {};
+  try {
+    json = text ? (JSON.parse(text) as Record<string, unknown>) : {};
+  } catch {
+    // Not our JSON (e.g. a platform error page): surface what we got.
+    if (!res.ok) throw new ApiError(res.status, `Request failed (${res.status}): ${text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 200)}`);
+    throw new ApiError(res.status, "The server returned an unexpected response.");
+  }
   if (!res.ok) {
-    throw new ApiError(res.status, (json.error as string) ?? `Request failed (${res.status})`, json.code as string | undefined, json.details);
+    const ref = res.headers.get("x-request-id");
+    const fallback = `Request failed (${res.status}${text ? "" : ", empty response"}). Check the hosting logs${ref ? ` for request ${ref}` : ""}.`;
+    throw new ApiError(res.status, (json.error as string) ?? fallback, json.code as string | undefined, json.details);
   }
   return json as T;
 }
