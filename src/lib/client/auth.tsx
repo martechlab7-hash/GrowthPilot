@@ -4,6 +4,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import {
   GoogleAuthProvider,
   createUserWithEmailAndPassword,
+  getRedirectResult,
+  signInWithRedirect,
   onIdTokenChanged,
   signInWithEmailAndPassword,
   signInWithPopup,
@@ -94,6 +96,9 @@ function ConfiguredAuthProvider({ children }: { children: ReactNode }) {
         });
       return;
     }
+    getRedirectResult(firebaseAuth()).catch((e: { code?: string; message?: string }) => {
+      setMeError(`Google sign-in failed (${e.code ?? e.message ?? "unknown error"}).`);
+    });
     return onIdTokenChanged(firebaseAuth(), async (u) => {
       setUser(u ? { uid: u.uid, email: u.email ?? "", name: u.displayName ?? u.email ?? "User" } : null);
       if (u) await refreshMe();
@@ -119,7 +124,19 @@ function ConfiguredAuthProvider({ children }: { children: ReactNode }) {
       },
       async signInGoogle() {
         if (isDemoMode) return demoSignIn(setUser, refreshMe);
-        await signInWithPopup(firebaseAuth(), new GoogleAuthProvider());
+        const provider = new GoogleAuthProvider();
+        provider.setCustomParameters({ prompt: "select_account" });
+        try {
+          await signInWithPopup(firebaseAuth(), provider);
+        } catch (e) {
+          const code = (e as { code?: string }).code ?? "";
+          // Popups blocked or unsupported (some mobile/in-app browsers): fall back to a full-page redirect.
+          if (code.includes("popup-blocked") || code.includes("operation-not-supported")) {
+            await signInWithRedirect(firebaseAuth(), provider);
+            return;
+          }
+          throw e;
+        }
       },
       async signOut() {
         if (isDemoMode) {
