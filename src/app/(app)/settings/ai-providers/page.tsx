@@ -70,6 +70,15 @@ function ProviderForm({ onDone }: { onDone: () => void }) {
             <Label htmlFor="key">API key</Label>
             <Input id="key" type="password" autoComplete="off" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="Paste key" />
           </div>
+          {kind === "openrouter" && (
+            <p className="text-sm text-muted sm:col-span-2">
+              One key for hundreds of models. Create a key at{" "}
+              <a className="text-brand-600 underline" href="https://openrouter.ai/keys" target="_blank" rel="noreferrer">openrouter.ai/keys</a>{" "}
+              and use model IDs from{" "}
+              <a className="text-brand-600 underline" href="https://openrouter.ai/models" target="_blank" rel="noreferrer">openrouter.ai/models</a>{" "}
+              (format <code>vendor/model</code>, e.g. <code>google/gemini-2.5-flash</code>). Billing happens on your OpenRouter account.
+            </p>
+          )}
           {kind === "custom" && (
             <div className="sm:col-span-2">
               <Label htmlFor="base">Base URL</Label>

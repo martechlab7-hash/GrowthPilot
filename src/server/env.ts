@@ -10,7 +10,7 @@ export const env = {
   /** base64-encoded 32-byte key(s). Format: "v1:<b64>,v2:<b64>"; the last one encrypts. */
   encryptionKeys: process.env.CREDENTIALS_ENCRYPTION_KEYS ?? "",
   /** Optional platform-level fallback provider so new orgs can try the product. */
-  platformProvider: process.env.PLATFORM_AI_PROVIDER as "openai" | "anthropic" | "gemini" | undefined,
+  platformProvider: process.env.PLATFORM_AI_PROVIDER as "openai" | "anthropic" | "gemini" | "openrouter" | undefined,
   platformApiKey: process.env.PLATFORM_AI_API_KEY,
 };
 

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const PROVIDER_KINDS = ["openai", "anthropic", "gemini", "custom"] as const;
+export const PROVIDER_KINDS = ["openai", "anthropic", "gemini", "openrouter", "custom"] as const;
 export const ProviderKindSchema = z.enum(PROVIDER_KINDS);
 export type ProviderKind = z.infer<typeof ProviderKindSchema>;
 
@@ -76,6 +76,8 @@ export const DEFAULT_MODELS: Record<ProviderKind, ModelMap> = {
   openai: { fast: "gpt-5-mini", reasoning: "gpt-5", large: "gpt-5" },
   anthropic: { fast: "claude-haiku-4-5", reasoning: "claude-sonnet-5-5", large: "claude-opus-5-5" },
   gemini: { fast: "gemini-2.5-flash", reasoning: "gemini-2.5-pro", large: "gemini-2.5-pro" },
+  // OpenRouter model IDs are "vendor/model"; browse https://openrouter.ai/models.
+  openrouter: { fast: "google/gemini-2.5-flash", reasoning: "anthropic/claude-sonnet-4.5", large: "anthropic/claude-sonnet-4.5" },
   custom: { fast: "", reasoning: "", large: "" },
 };
 
@@ -83,6 +85,7 @@ export const PROVIDER_LABELS: Record<ProviderKind, string> = {
   openai: "OpenAI",
   anthropic: "Anthropic",
   gemini: "Google Gemini",
+  openrouter: "OpenRouter",
   custom: "Custom (OpenAI-compatible)",
 };
 

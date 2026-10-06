@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { geminiAdapter } from "./gemini";
-import { openaiAdapter } from "./openai";
+import { openaiAdapter, openrouterAdapter } from "./openai";
 
 const creds = { apiKey: "k" };
 const req = (model: string) => ({ system: "s", messages: [{ role: "user" as const, content: "p" }], model, json: true, maxTokens: 8000 });
@@ -41,5 +41,24 @@ describe("openai adapter", () => {
     await expect(openaiAdapter.complete(req("gpt-5"), creds)).rejects.toThrow(/ran out of output tokens/);
     const sent = JSON.parse((fetch.mock.calls[0] as unknown as [string, { body: string }])[1].body);
     expect(sent.max_completion_tokens).toBe(24_000);
+  });
+});
+
+describe("openrouter adapter", () => {
+  it("calls OpenRouter with JSON mode, attribution and reasoning headroom", async () => {
+    const fetch = mockFetch({ model: "google/gemini-2.5-flash", choices: [{ finish_reason: "stop", message: { content: '{"ok":true}' } }], usage: { prompt_tokens: 4, completion_tokens: 2 } });
+    const res = await openrouterAdapter.complete(req("google/gemini-2.5-flash"), creds);
+    expect(res.text).toBe('{"ok":true}');
+    const [url, init] = fetch.mock.calls[0] as unknown as [string, { body: string; headers: Record<string, string> }];
+    expect(url).toBe("https://openrouter.ai/api/v1/chat/completions");
+    expect(init.headers["X-Title"]).toBeTruthy();
+    const sent = JSON.parse(init.body);
+    expect(sent.response_format).toEqual({ type: "json_object" });
+    expect(sent.max_tokens).toBe(24_000);
+  });
+
+  it("surfaces errors OpenRouter returns inside a 200 body", async () => {
+    mockFetch({ error: { message: "No endpoints found for model x/y", code: 404 } });
+    await expect(openrouterAdapter.complete(req("x/y"), creds)).rejects.toThrow(/No endpoints found/);
   });
 });
