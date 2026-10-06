@@ -5,7 +5,7 @@ export const env = {
   demoMode: process.env.GROWTHPILOT_DEMO_MODE === "true",
   firebaseProjectId: process.env.FIREBASE_PROJECT_ID ?? process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
   firebaseClientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-  firebasePrivateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
+  firebasePrivateKey: normalizePrivateKey(process.env.FIREBASE_PRIVATE_KEY),
   firebaseStorageBucket: process.env.FIREBASE_STORAGE_BUCKET ?? process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
   /** base64-encoded 32-byte key(s). Format: "v1:<b64>,v2:<b64>"; the last one encrypts. */
   encryptionKeys: process.env.CREDENTIALS_ENCRYPTION_KEYS ?? "",
@@ -25,4 +25,12 @@ export function serverConfigProblems(): string[] {
   }
   if (!env.encryptionKeys) missing.push("CREDENTIALS_ENCRYPTION_KEYS");
   return missing;
+}
+
+/** Accepts the key pasted with literal "\n", real newlines, or wrapped in quotes. */
+function normalizePrivateKey(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  let key = raw.trim();
+  if ((key.startsWith('"') && key.endsWith('"')) || (key.startsWith("'") && key.endsWith("'"))) key = key.slice(1, -1);
+  return key.replace(/\\n/g, "\n").replace(/\r/g, "");
 }

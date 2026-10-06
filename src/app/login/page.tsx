@@ -71,6 +71,15 @@ export default function LoginPage() {
                 <Input id="password" type="password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete={mode === "signin" ? "current-password" : "new-password"} />
               </div>
               <ErrorNote error={error} />
+              {auth.user && !auth.me && auth.meError && (
+                <div role="alert" className="space-y-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  <p>Signed in as {auth.user.email}, but the server could not load your account: {auth.meError}</p>
+                  <div className="flex gap-3">
+                    <button type="button" className="font-medium underline" onClick={() => run(auth.refreshMe)}>Retry</button>
+                    <button type="button" className="font-medium underline" onClick={() => run(auth.signOut)}>Sign out</button>
+                  </div>
+                </div>
+              )}
               <Button type="submit" className="w-full" loading={busy}>{mode === "signin" ? "Sign in" : "Create account"}</Button>
               <Button type="button" variant="outline" className="w-full" disabled={busy} onClick={() => run(auth.signInGoogle)}>Continue with Google</Button>
               <p className="text-center text-sm text-muted">
@@ -93,6 +102,13 @@ function friendly(e: unknown): string {
   if (code.includes("invalid-credential") || code.includes("wrong-password") || code.includes("user-not-found")) return "Email or password is incorrect.";
   if (code.includes("email-already-in-use")) return "An account with this email already exists.";
   if (code.includes("weak-password")) return "Password must be at least 8 characters.";
-  if (code.includes("popup-closed")) return "Sign-in was cancelled.";
+  if (code.includes("popup-closed") || code.includes("cancelled-popup")) return "Sign-in was cancelled.";
+  if (code.includes("popup-blocked")) return "The browser blocked the Google sign-in popup. Allow popups for this site and try again.";
+  if (code.includes("unauthorized-domain")) return `This domain (${window.location.hostname}) is not authorized in Firebase. Add it under Authentication → Settings → Authorized domains.`;
+  if (code.includes("operation-not-allowed")) return "This sign-in method is not enabled. Enable it in Firebase → Authentication → Sign-in method.";
+  if (code.includes("configuration-not-found")) return "Firebase Authentication is not set up for this project. Open Firebase → Authentication and click Get started.";
+  if (code.includes("invalid-api-key") || code.includes("api-key-not-valid")) return "The Firebase API key is invalid. Check NEXT_PUBLIC_FIREBASE_API_KEY and redeploy.";
+  if (code.includes("too-many-requests")) return "Too many attempts. Wait a minute and try again.";
+  if (code) return `Sign-in failed (${code}).`;
   return e instanceof Error ? e.message : "Sign-in failed.";
 }

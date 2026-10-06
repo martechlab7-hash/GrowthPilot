@@ -4,6 +4,7 @@ import type { Organization, UserProfile } from "@/domain/types";
 import { env } from "./env";
 import { adminAuth } from "./firebaseAdmin";
 import { HttpError } from "./errors";
+import { log } from "./logger";
 import { getStore } from "./store";
 
 export interface AuthContext {
@@ -27,8 +28,20 @@ export async function verifyRequest(req: NextRequest): Promise<{ uid: string; em
   try {
     const decoded = await adminAuth().verifyIdToken(token, true);
     return { uid: decoded.uid, email: decoded.email ?? "", name: (decoded.name as string | undefined) ?? decoded.email ?? "User" };
-  } catch {
-    throw new HttpError(401, "Session expired. Please sign in again.", "UNAUTHENTICATED");
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const code = (err as { code?: string }).code ?? "";
+    log("warn", "auth.verify_failed", { code, message });
+    if (code === "auth/id-token-expired" || code === "auth/id-token-revoked" || code === "auth/user-disabled") {
+      throw new HttpError(401, "Session expired. Please sign in again.", "UNAUTHENTICATED");
+    }
+    if (code === "auth/argument-error" && /project|aud/i.test(message)) {
+      throw new HttpError(500, "Server Firebase project does not match the web app. FIREBASE_PROJECT_ID must equal NEXT_PUBLIC_FIREBASE_PROJECT_ID.", "SERVER_MISCONFIGURED");
+    }
+    if (/credential|private key|PEM|DECODER|invalid_grant|service account/i.test(message)) {
+      throw new HttpError(500, "Server Firebase credentials are invalid. Check FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY (see /api/health?deep=1).", "SERVER_MISCONFIGURED");
+    }
+    throw new HttpError(401, `Could not verify your session (${code || "unknown error"}). Please sign in again.`, "UNAUTHENTICATED");
   }
 }
 
