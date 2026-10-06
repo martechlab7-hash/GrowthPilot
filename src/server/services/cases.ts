@@ -33,6 +33,7 @@ import { log } from "../logger";
 import { getStore } from "../store";
 import { audit } from "./org";
 import { gatewayFor } from "./providers";
+import { ActivityRecorder } from "./activity";
 import { assertAiQuota, PLAN_LIMITS } from "./usage";
 import { diffVersions } from "./versionDiff";
 
@@ -63,6 +64,7 @@ export const UpdateCaseSchema = z.object({
   currency: z.string().length(3).optional(),
   status: z.enum(["draft", "discovery", "validation", "strategy", "completed"]).optional(),
   revision: z.number().int().optional(),
+  dismissPending: z.boolean().optional(),
 });
 
 export const AnswerSchema = z.object({
@@ -166,15 +168,26 @@ async function orgPlan(orgId: string) {
  * Run an AI operation with quota checks. On failure the case is flagged with a
  * resumable pending operation — user work is never lost (spec §74).
  */
-async function withAi<T>(auth: AuthContext, c: Case, operation: string, fn: (deps: { gateway: Awaited<ReturnType<typeof gatewayFor>>; call: { organizationId: string; userId: string; caseId: string } }) => Promise<T>): Promise<T> {
+async function withAi<T>(
+  auth: AuthContext,
+  c: Case,
+  operation: string,
+  fn: (deps: { gateway: Awaited<ReturnType<typeof gatewayFor>>; call: { organizationId: string; userId: string; caseId: string }; progress: ActivityRecorder }) => Promise<T>,
+): Promise<T> {
   await assertAiQuota(auth.orgId, await orgPlan(auth.orgId));
-  const gateway = await gatewayFor(auth.orgId);
+  const gateway = await gatewayFor(auth.orgId, auth.aiPreference);
   if (!gateway.hasProviders) {
     throw new HttpError(412, "Configure an AI provider in Settings → AI Providers to run this analysis.", "NO_AI_PROVIDER");
   }
+  const progress = new ActivityRecorder(auth.orgId, c.id, operation);
+  progress.step("Started", `${Object.keys(c.context.fields).length} context facts · ${c.selectedFrameworks.length} diagnostic frameworks selected`);
   try {
-    return await fn({ gateway, call: { organizationId: auth.orgId, userId: auth.uid, caseId: c.id } });
+    const result = await fn({ gateway, call: { organizationId: auth.orgId, userId: auth.uid, caseId: c.id }, progress });
+    await progress.finish("succeeded");
+    return result;
   } catch (err) {
+    const reason = err instanceof AIUnavailableError ? err.attempts.at(-1) : err instanceof Error ? err.message : String(err);
+    await progress.finish("failed", reason?.slice(0, 300));
     if (err instanceof AIUnavailableError) {
       await mutate(auth, c.id, (cur) => ({ ...cur, pendingOperation: { operation, message: `${err.message}${err.attempts.length ? ` Reason: ${err.attempts.at(-1)!.slice(0, 300)}` : ""}`, failedAt: now() } }));
     }
@@ -349,13 +362,14 @@ export async function updateCase(auth: AuthContext, caseId: string, input: z.inf
     if (input.revision !== undefined && input.revision !== c.revision && input.notes !== undefined) {
       throw new HttpError(409, "This case was updated elsewhere. Reload to see the latest version.", "CONFLICT");
     }
-    return {
+    const next: Case = {
       ...c,
       ...(input.name ? { name: input.name } : {}),
       ...(input.currency ? { currency: input.currency } : {}),
       ...(input.status ? { status: input.status } : {}),
       ...(input.notes !== undefined ? { context: { ...c.context, notes: input.notes } } : {}),
     };
+    return input.dismissPending ? clearPending(next) : next;
   });
   return withDerived(updated);
 }

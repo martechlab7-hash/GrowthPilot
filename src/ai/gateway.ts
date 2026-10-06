@@ -5,6 +5,7 @@ import {
   AIOutputError,
   AIProviderError,
   AIUnavailableError,
+  type AIEvent,
   type ChatMessage,
   type ModelTier,
   type ProviderAdapter,
@@ -27,6 +28,7 @@ export interface StructuredRequest<T extends z.ZodType> {
   schema: T;
   maxTokens?: number;
   context: GatewayCallContext;
+  onEvent?: (e: AIEvent) => void;
 }
 
 export interface GatewayResult<T> {
@@ -74,8 +76,18 @@ export class AIGateway {
     const attempts: string[] = [];
     const system = `${req.system}\n\nOUTPUT CONTRACT: Return ONLY a JSON object that validates against this JSON Schema:\n${schemaForPrompt(req.schema)}`;
 
+    const emit = (e: AIEvent) => {
+      try {
+        req.onEvent?.(e);
+      } catch {
+        /* progress reporting must never break a request */
+      }
+    };
+    let previous: string | undefined;
     for (const provider of this.opts.providers) {
       const model = provider.models[req.tier] || provider.models.reasoning;
+      if (previous) emit({ type: "fallback", from: previous, to: provider.label });
+      previous = provider.label;
       if (!model) {
         attempts.push(`${provider.label}: no model configured for tier ${req.tier}`);
         continue;
@@ -85,6 +97,7 @@ export class AIGateway {
 
       for (let attempt = 0; attempt <= this.retries; attempt++) {
         const started = Date.now();
+        emit({ type: "attempt", provider: provider.label, model, attempt: attempt + 1 });
         try {
           const res = await (this.opts.adapterFor ?? getAdapter)(provider.kind).complete(
             {
@@ -99,6 +112,7 @@ export class AIGateway {
           );
           const latencyMs = Date.now() - started;
           await this.meter(req, provider, res.model, res.inputTokens, res.outputTokens, latencyMs, true);
+          emit({ type: "response", provider: provider.label, model: res.model, latencyMs, inputTokens: res.inputTokens, outputTokens: res.outputTokens });
           try {
             const data = parseStructured(res.text, req.schema);
             return { data, provider: provider.label, model: res.model, latencyMs };
@@ -106,6 +120,7 @@ export class AIGateway {
             if (!(err instanceof AIOutputError) || repaired) throw err;
             // One repair turn: show the model its own output and the validation error.
             repaired = true;
+            emit({ type: "repair", provider: provider.label, model, reason: err.message });
             messages.push({ role: "assistant", content: res.text.slice(0, 20_000) });
             messages.push({
               role: "user",
@@ -123,6 +138,7 @@ export class AIGateway {
           attempts.push(`${provider.label} (${model}): ${message}`);
           this.opts.log?.("ai.attempt_failed", { agent: req.agent, provider: provider.kind, model, message });
           const retryable = err instanceof AIProviderError ? err.retryable : false;
+          emit({ type: "error", provider: provider.label, model, message, willRetry: retryable && attempt < this.retries });
           if (!retryable || attempt === this.retries) break;
           await sleep(this.backoff * 2 ** attempt);
         }

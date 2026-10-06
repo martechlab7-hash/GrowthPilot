@@ -27,6 +27,7 @@ export const COLLECTIONS = [
   "audit_logs",
   "brand_profiles",
   "usage_counters",
+  "case_activity",
 ] as const;
 export type CollectionName = (typeof COLLECTIONS)[number];
 

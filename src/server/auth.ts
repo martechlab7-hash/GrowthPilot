@@ -14,6 +14,8 @@ export interface AuthContext {
   profile: UserProfile | null;
   /** Present once onboarded; every data access is scoped to it. */
   orgId: string;
+  /** Provider/model the user picked for AI runs (validated against the org's providers). */
+  aiPreference?: { providerId: string; model?: string };
 }
 
 export const DEMO_UID = "demo-user";
@@ -54,7 +56,10 @@ export async function requireUser(
   if (!profile && !opts.allowUnonboarded) {
     throw new HttpError(403, "Account setup required", "NOT_ONBOARDED");
   }
-  return { ...identity, profile, orgId: profile?.organizationId ?? "" };
+  const providerId = req.headers.get("x-ai-provider")?.trim();
+  const model = req.headers.get("x-ai-model")?.trim();
+  const aiPreference = providerId && /^[\w-]{1,64}$/.test(providerId) ? { providerId, ...(model && model.length <= 120 ? { model } : {}) } : undefined;
+  return { ...identity, profile, orgId: profile?.organizationId ?? "", ...(aiPreference ? { aiPreference } : {}) };
 }
 
 export async function getOrganization(orgId: string): Promise<Organization | null> {

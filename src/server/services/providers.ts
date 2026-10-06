@@ -58,6 +58,18 @@ export type ProviderInput = z.infer<typeof ProviderInputSchema>;
 
 const col = () => getStore().collection<AiProviderRecord>("ai_providers");
 
+/** Custom providers are named after their host (e.g. "openrouter.ai") so they're distinguishable. */
+function defaultLabel(kind: ProviderKind, baseUrl: string | undefined): string {
+  if (kind === "custom" && baseUrl) {
+    try {
+      return new URL(baseUrl).host;
+    } catch {
+      /* fall through */
+    }
+  }
+  return PROVIDER_LABELS[kind];
+}
+
 export function toPublic(p: AiProviderRecord): PublicProvider {
   const { encryptedKey: _secret, ...rest } = p;
   void _secret;
@@ -106,7 +118,7 @@ export async function createProvider(orgId: string, uid: string, input: Provider
     id: `prv_${crypto.randomUUID().slice(0, 12)}`,
     organizationId: orgId,
     kind: input.kind,
-    label: input.label || PROVIDER_LABELS[input.kind],
+    label: input.label || defaultLabel(input.kind, baseUrl),
     ...(baseUrl ? { baseUrl } : {}),
     models: resolveModels(input.kind, input.models),
     encryptedKey: encryptSecret(input.apiKey.trim()),
@@ -190,9 +202,21 @@ export async function resolveProviders(orgId: string): Promise<ResolvedProvider[
   return out;
 }
 
-export async function gatewayFor(orgId: string): Promise<AIGateway> {
+/**
+ * The preferred provider (and optional model override) runs first; the
+ * others remain as automatic fallbacks.
+ */
+export async function gatewayFor(orgId: string, preference?: { providerId: string; model?: string }): Promise<AIGateway> {
+  let providers = await resolveProviders(orgId);
+  if (preference) {
+    const chosen = providers.find((p) => p.id === preference.providerId);
+    if (chosen) {
+      const first = preference.model ? { ...chosen, models: { fast: preference.model, reasoning: preference.model, large: preference.model } } : chosen;
+      providers = [first, ...providers.filter((p) => p.id !== chosen.id)];
+    }
+  }
   return new AIGateway({
-    providers: await resolveProviders(orgId),
+    providers,
     recordUsage,
     log: (event, data) => log("warn", event, { orgId, ...data }),
   });

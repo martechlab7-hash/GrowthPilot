@@ -1,5 +1,6 @@
 "use client";
 
+import { aiPreferenceHeaders } from "./aiPreference";
 import { firebaseAuth, isDemoMode } from "./firebase";
 
 export class ApiError extends Error {
@@ -18,7 +19,7 @@ async function authHeader(): Promise<Record<string, string>> {
 export async function apiFetch<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
   const res = await fetch(path, {
     method: init.method ?? (init.body !== undefined ? "POST" : "GET"),
-    headers: { ...(init.body !== undefined ? { "content-type": "application/json" } : {}), ...(await authHeader()) },
+    headers: { ...(init.body !== undefined ? { "content-type": "application/json" } : {}), ...aiPreferenceHeaders(), ...(await authHeader()) },
     body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
     cache: "no-store",
   });

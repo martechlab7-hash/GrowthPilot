@@ -116,3 +116,11 @@ export interface UsageRecord {
   error?: string;
   createdAt: string;
 }
+
+/** Progress events emitted by the gateway so the UI can show what is happening. */
+export type AIEvent =
+  | { type: "attempt"; provider: string; model: string; attempt: number }
+  | { type: "response"; provider: string; model: string; latencyMs: number; inputTokens: number; outputTokens: number }
+  | { type: "repair"; provider: string; model: string; reason: string }
+  | { type: "error"; provider: string; model: string; message: string; willRetry: boolean }
+  | { type: "fallback"; from: string; to: string };
