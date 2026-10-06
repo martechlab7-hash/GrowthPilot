@@ -1,6 +1,7 @@
 import "server-only";
 import fs from "node:fs";
 import path from "node:path";
+import { findUndefined } from "./clean";
 import { applyQuery } from "./query";
 import type { Collection, CollectionName, DataStore, QueryOptions } from "./types";
 
@@ -14,7 +15,8 @@ export class MemoryStore implements DataStore {
   private data = new Map<string, Map<string, Row>>();
   private flushTimer: NodeJS.Timeout | undefined;
 
-  constructor(private readonly file?: string) {
+  /** strict: reject `undefined` values exactly like Firestore would (used in tests). */
+  constructor(private readonly file?: string, private readonly strict = false) {
     if (file && fs.existsSync(file)) {
       const raw = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, Row[]>;
       for (const [name, rows] of Object.entries(raw)) {
@@ -47,16 +49,23 @@ export class MemoryStore implements DataStore {
     const table = () => this.table(name);
     const clone = <X>(x: X): X => structuredClone(x);
     const flush = () => this.scheduleFlush();
+    const strict = this.strict;
+    const check = (v: unknown) => {
+      const at = strict ? findUndefined(v) : null;
+      if (at) throw new Error(`Cannot use "undefined" as a Firestore value (found in field "${at}") in ${name}`);
+    };
     return {
       async get(id) {
         const row = table().get(id);
         return row ? (clone(row) as unknown as T) : null;
       },
       async set(doc) {
+        check(doc);
         table().set(doc.id, clone(doc) as unknown as Row);
         flush();
       },
       async update(id, patch) {
+        check(patch);
         const row = table().get(id);
         if (!row) throw new Error(`Document ${name}/${id} not found`);
         table().set(id, { ...row, ...clone(patch) } as Row);
@@ -74,6 +83,7 @@ export class MemoryStore implements DataStore {
         const current = table().get(id);
         const next = fn(current ? (clone(current) as unknown as T) : null);
         if (next) {
+          check(next);
           table().set(id, clone(next) as unknown as Row);
           flush();
         }

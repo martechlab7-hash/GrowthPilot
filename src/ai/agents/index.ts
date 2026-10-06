@@ -42,6 +42,7 @@ const AGENT_LABELS: Record<string, string> = {
   activation: "Activation Agent",
   measurement: "Measurement Agent",
   report: "Report Agent",
+  chat: "Case assistant",
 };
 
 interface AgentDeps {
@@ -248,4 +249,38 @@ export async function generateReport(deps: AgentDeps, c: Case): Promise<ReportCo
     "MARTECH MATURITY (computed)": JSON.stringify(assessMaturity(c.context)),
   }, S.ReportOutput);
   return { ...out, title: c.name, generatedAt: new Date().toISOString() };
+}
+
+export interface ChatTurn {
+  role: "user" | "assistant";
+  content: string;
+}
+
+/** Case-scoped Q&A over the full dossier. */
+export async function answerCaseQuestion(
+  deps: AgentDeps,
+  c: Case,
+  history: ChatTurn[],
+  question: string,
+): Promise<{ answer: string; citations: string[]; outOfScope: boolean; followUps: string[] }> {
+  const dossier = {
+    context: buildAgentContext(c),
+    diagnosis: c.diagnosis ?? null,
+    hypotheses: c.hypotheses.map((h, i) => ({ ref: `Hypothesis ${i + 1}`, statement: h.statement, status: h.status, confidence: h.confidence, evidence: h.evidence, missingEvidence: h.missingEvidence, userFeedback: h.userFeedback })),
+    recommendations: c.recommendations.map((r) => ({ ref: `Recommendation: ${r.title}`, ...r })),
+    customerJourney: c.customerJourney,
+    activationJourneys: c.journeys,
+    measurement: c.measurement ?? null,
+    experiments: c.experiments,
+    economics: c.economics ?? "not modelled",
+    dataGaps: c.dataGaps,
+    assumptions: c.assumptions,
+    report: c.report ?? null,
+    martechMaturity: assessMaturity(c.context),
+  };
+  return runAgent(deps, "chat", "reasoning", P.CHAT_SYSTEM, {
+    "CASE DOSSIER": JSON.stringify(dossier),
+    "CONVERSATION SO FAR": history.slice(-10).map((t) => `${t.role.toUpperCase()}: ${t.content.slice(0, 2000)}`).join("\n") || "(none)",
+    QUESTION: question,
+  }, S.ChatOutput);
 }

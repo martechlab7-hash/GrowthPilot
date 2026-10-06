@@ -173,6 +173,7 @@ async function withAi<T>(
   c: Case,
   operation: string,
   fn: (deps: { gateway: Awaited<ReturnType<typeof gatewayFor>>; call: { organizationId: string; userId: string; caseId: string }; progress: ActivityRecorder }) => Promise<T>,
+  opts: { flagPending?: boolean } = {},
 ): Promise<T> {
   await assertAiQuota(auth.orgId, await orgPlan(auth.orgId));
   const gateway = await gatewayFor(auth.orgId, auth.aiPreference);
@@ -188,11 +189,16 @@ async function withAi<T>(
   } catch (err) {
     const reason = err instanceof AIUnavailableError ? err.attempts.at(-1) : err instanceof Error ? err.message : String(err);
     await progress.finish("failed", reason?.slice(0, 300));
-    if (err instanceof AIUnavailableError) {
+    if (err instanceof AIUnavailableError && opts.flagPending !== false) {
       await mutate(auth, c.id, (cur) => ({ ...cur, pendingOperation: { operation, message: `${err.message}${err.attempts.length ? ` Reason: ${err.attempts.at(-1)!.slice(0, 300)}` : ""}`, failedAt: now() } }));
     }
     throw err;
   }
+}
+
+/** Chat runs through the same quota, provider choice and activity log, without pending-operation flags. */
+export async function withAiForChat<T>(auth: AuthContext, c: Case, fn: Parameters<typeof withAi<T>>[3]): Promise<T> {
+  return withAi(auth, c, "chat", fn, { flagPending: false });
 }
 
 function clearPending(c: Case): Case {
@@ -604,7 +610,7 @@ export async function reviewHypothesis(auth: AuthContext, caseId: string, hypoth
       revised.status = "agreed";
       break;
     case "edit":
-      revised = { ...revised, statement: input.statement!, status: "agreed", editedByUser: true, userFeedback: input.feedback };
+      revised = { ...revised, statement: input.statement!, status: "agreed", editedByUser: true, ...(input.feedback ? { userFeedback: input.feedback } : {}) };
       break;
     case "disagree":
       revised = { ...revised, status: "disagreed", userFeedback: input.feedback };

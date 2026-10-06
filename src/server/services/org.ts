@@ -2,6 +2,7 @@ import "server-only";
 import { z } from "zod";
 import { DEFAULT_BRAND, BrandProfileSchema, type BrandProfile, type Organization, type UserProfile, type AuditLogEntry } from "@/domain/types";
 import { badRequest, forbidden } from "../errors";
+import { isValidPng } from "@/reports/brandAssets";
 import { getStore } from "../store";
 import type { AuthContext } from "../auth";
 import { COLLECTIONS } from "../store/types";
@@ -69,6 +70,9 @@ export async function getBrand(orgId: string): Promise<BrandProfile> {
 
 export async function saveBrand(auth: AuthContext, input: unknown): Promise<BrandProfile> {
   const brand = BrandProfileSchema.parse(input);
+  if (brand.logoDataUrl && !isValidPng(Buffer.from(brand.logoDataUrl.slice(brand.logoDataUrl.indexOf(",") + 1), "base64"))) {
+    throw badRequest("The logo file could not be read. Upload a PNG, JPG, SVG or WebP image.");
+  }
   await getStore().collection<BrandDoc>("brand_profiles").set({
     ...brand,
     id: auth.orgId,

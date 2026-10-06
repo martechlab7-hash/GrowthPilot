@@ -1,8 +1,9 @@
 import "server-only";
 import {
   AlignmentType, BorderStyle, Document, Footer, Header, HeadingLevel, Packer, PageNumber,
-  Paragraph, ShadingType, Table, TableCell, TableRow, TextRun, WidthType,
+  ImageRun, Paragraph, ShadingType, Table, TableCell, TableRow, TextRun, WidthType,
 } from "docx";
+import { fit, logoOf } from "./brandAssets";
 import type { Block, ReportModel } from "./model";
 
 const hex = (c: string) => c.replace("#", "").toUpperCase();
@@ -56,6 +57,12 @@ function renderBlock(b: Block, m: ReportModel): (Paragraph | Table)[] {
 
 export async function renderDocx(m: ReportModel): Promise<Buffer> {
   const font = m.brand.fontFamily;
+  const headingFont = m.brand.headingFont || font;
+  const logo = logoOf(m.brand);
+  const logoRun = (maxW: number, maxH: number) =>
+    logo ? new ImageRun({ type: "png", data: logo.data, transformation: fit(logo.width, logo.height, maxW, maxH) }) : null;
+  const headerLogo = logoRun(90, 24);
+  const coverLogo = logoRun(220, 80);
   const doc = new Document({
     creator: m.companyName || "GrowthPilot",
     title: m.title,
@@ -63,18 +70,32 @@ export async function renderDocx(m: ReportModel): Promise<Buffer> {
     sections: [
       {
         properties: {},
-        headers: { default: new Header({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [new TextRun({ text: `${m.companyName ? `${m.companyName} · ` : ""}${m.title}`, size: 16, color: "7A8699", font })] })] }) },
+        headers: {
+          default: new Header({
+            children: [
+              new Paragraph({
+                alignment: AlignmentType.RIGHT,
+                children: [
+                  ...(headerLogo ? [headerLogo, new TextRun({ text: "   " })] : []),
+                  new TextRun({ text: `${m.companyName ? `${m.companyName} · ` : ""}${m.title}`, size: 16, color: "7A8699", font }),
+                ],
+              }),
+            ],
+          }),
+        },
         footers: {
           default: new Footer({
             children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ children: ["Page ", PageNumber.CURRENT, " of ", PageNumber.TOTAL_PAGES], size: 16, color: "7A8699", font })] })],
           }),
         },
         children: [
-          new Paragraph({ spacing: { before: 2400 }, children: [new TextRun({ text: m.title, bold: true, size: 56, color: hex(m.brand.primaryColor), font })] }),
+          ...(coverLogo ? [new Paragraph({ spacing: { before: 1200 }, children: [coverLogo] })] : []),
+          new Paragraph({ spacing: { before: coverLogo ? 1200 : 2400 }, children: [new TextRun({ text: m.title, bold: true, size: 56, color: hex(m.brand.primaryColor), font: headingFont })] }),
+          ...(m.brand.tagline ? [new Paragraph({ children: [new TextRun({ text: m.brand.tagline, italics: true, size: 22, color: "7A8699", font })] })] : []),
           new Paragraph({ children: [new TextRun({ text: m.subtitle, size: 28, color: hex(m.brand.secondaryColor), font })] }),
           new Paragraph({ spacing: { after: 2400 }, children: [new TextRun({ text: `${m.companyName ? `${m.companyName} · ` : ""}${m.generatedAt.slice(0, 10)}`, size: 22, color: "7A8699", font })] }),
           ...m.sections.flatMap((s) => [
-            new Paragraph({ heading: HeadingLevel.HEADING_1, pageBreakBefore: s.id === "executive" || s.id === "objective", spacing: { before: 360, after: 120 }, children: [new TextRun({ text: s.title, bold: true, color: hex(m.brand.primaryColor), size: 32, font })] }),
+            new Paragraph({ heading: HeadingLevel.HEADING_1, pageBreakBefore: s.id === "executive" || s.id === "objective", spacing: { before: 360, after: 120 }, children: [new TextRun({ text: s.title, bold: true, color: hex(m.brand.primaryColor), size: 32, font: headingFont })] }),
             ...s.blocks.flatMap((b) => renderBlock(b, m)),
           ]),
         ],

@@ -1,5 +1,6 @@
 import "server-only";
 import type { Firestore, Query } from "firebase-admin/firestore";
+import { stripUndefined } from "./clean";
 import { applyQuery } from "./query";
 import type { Collection, CollectionName, DataStore, QueryOptions } from "./types";
 
@@ -23,10 +24,10 @@ export class FirestoreStore implements DataStore {
         return snap.exists ? (snap.data() as T) : null;
       },
       async set(doc) {
-        await col.doc(doc.id).set(doc);
+        await col.doc(doc.id).set(stripUndefined(doc));
       },
       async update(id, patch) {
-        await col.doc(id).update(patch as Record<string, unknown>);
+        await col.doc(id).update(stripUndefined(patch) as Record<string, unknown>);
       },
       async delete(id) {
         await col.doc(id).delete();
@@ -56,7 +57,7 @@ export class FirestoreStore implements DataStore {
           const ref = col.doc(id);
           const snap = await tx.get(ref);
           const next = fn(snap.exists ? (snap.data() as T) : null);
-          if (next) tx.set(ref, next);
+          if (next) tx.set(ref, stripUndefined(next));
           return next;
         });
       },

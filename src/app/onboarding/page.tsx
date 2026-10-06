@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Button, Card, CardBody, ErrorNote, Input, Label } from "@/components/ui";
+import { OwlSays } from "@/components/mascot";
 import { apiFetch } from "@/lib/client/api";
 import { useAuth } from "@/lib/client/auth";
 
@@ -20,10 +21,11 @@ export default function OnboardingPage() {
   }, [auth, router]);
 
   return (
-    <main className="flex min-h-screen items-center justify-center px-4">
-      <Card className="w-full max-w-md">
-        <CardBody className="space-y-4 py-8">
-          <h1 className="text-xl font-semibold">Set up your workspace</h1>
+    <main className="flex min-h-screen items-center justify-center bg-gradient-to-br from-brand-50 via-canvas to-violet-50 px-4">
+      <Card className="w-full max-w-md shadow-pop">
+        <CardBody className="space-y-4 p-8">
+          <OwlSays size={72}>Welcome! Let&apos;s set up your workspace.</OwlSays>
+          <h1 className="text-xl font-semibold tracking-tight">Name your organization</h1>
           <p className="text-sm text-muted">Cases, brand settings and AI providers belong to your organization. You can invite colleagues later.</p>
           <form
             className="space-y-3"

@@ -44,8 +44,19 @@ export async function apiFetch<T>(path: string, init: { method?: string; body?: 
 export async function apiDownload(path: string): Promise<void> {
   const res = await fetch(path, { headers: await authHeader(), cache: "no-store" });
   if (!res.ok) {
-    const j = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new ApiError(res.status, j.error ?? "Download failed");
+    const text = await res.text().catch(() => "");
+    let message: string | undefined;
+    try {
+      message = (JSON.parse(text) as { error?: string }).error;
+    } catch {
+      /* platform error page, not our JSON */
+    }
+    const ref = res.headers.get("x-request-id") ?? res.headers.get("x-vercel-id");
+    throw new ApiError(
+      res.status,
+      message ??
+        `Download failed (${res.status}${text ? `: ${text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 160)}` : ""})${ref ? ` · ref ${ref}` : ""}`,
+    );
   }
   const blob = await res.blob();
   const name = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") ?? "")?.[1] ?? "download";

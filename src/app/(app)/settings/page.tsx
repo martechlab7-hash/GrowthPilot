@@ -1,9 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Button, Card, CardBody, CardHeader, ErrorNote, Input, PageHeader } from "@/components/ui";
+import { Button, Card, CardBody, CardHeader, ErrorNote, Input } from "@/components/ui";
 import { apiFetch } from "@/lib/client/api";
 import { useAuth } from "@/lib/client/auth";
 
@@ -14,11 +13,9 @@ export default function SettingsPage() {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   if (!me?.onboarded) return null;
-  const isAdmin = ["owner", "admin"].includes(me.profile.role);
 
   return (
-    <div className="mx-auto max-w-3xl space-y-5">
-      <PageHeader title="Settings" />
+    <div className="space-y-5">
       <Card>
         <CardHeader title="Account & organization" />
         <CardBody className="grid gap-3 text-sm sm:grid-cols-2">
@@ -26,14 +23,6 @@ export default function SettingsPage() {
           <div><div className="text-muted">Email</div>{me.profile.email}</div>
           <div><div className="text-muted">Organization</div>{me.organization?.name}</div>
           <div><div className="text-muted">Role · Plan</div>{me.profile.role} · {me.organization?.plan}</div>
-        </CardBody>
-      </Card>
-      <Card>
-        <CardHeader title="Workspace" />
-        <CardBody className="flex flex-wrap gap-2">
-          <Link href="/settings/ai-providers"><Button variant="outline">AI providers</Button></Link>
-          <Link href="/settings/brand"><Button variant="outline">Brand guidelines</Button></Link>
-          {isAdmin && <Link href="/settings/usage"><Button variant="outline">AI usage & cost</Button></Link>}
         </CardBody>
       </Card>
       <Card>

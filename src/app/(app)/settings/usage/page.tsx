@@ -1,6 +1,6 @@
 "use client";
 
-import { Card, CardBody, CardHeader, ErrorNote, PageHeader, Spinner } from "@/components/ui";
+import { Card, CardBody, CardHeader, ErrorNote, Spinner } from "@/components/ui";
 import { useApi } from "@/lib/client/useApi";
 
 interface Usage {
@@ -12,8 +12,8 @@ interface Usage {
 export default function UsagePage() {
   const { data, error, loading } = useApi<Usage>("/api/usage?days=30");
   return (
-    <div className="mx-auto max-w-5xl">
-      <PageHeader title="AI usage" description="Last 30 days, all members of your organization." />
+    <div>
+      <p className="mb-4 text-sm text-muted">Last 30 days, all members of your organization.</p>
       <ErrorNote error={error} />
       {loading || !data ? <Spinner /> : (
         <div className="space-y-5">

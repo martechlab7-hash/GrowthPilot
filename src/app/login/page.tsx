@@ -4,7 +4,8 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Compass } from "lucide-react";
 import { product } from "@/config/product";
-import { Button, Card, CardBody, ErrorNote, Input, Label } from "@/components/ui";
+import { Button, ErrorNote, Input, Label } from "@/components/ui";
+import { Owl } from "@/components/mascot";
 import { useAuth } from "@/lib/client/auth";
 import { isDemoMode } from "@/lib/client/firebase";
 
@@ -36,12 +37,28 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center px-4">
-      <Card className="w-full max-w-sm">
-        <CardBody className="space-y-5 py-8">
-          <div className="text-center">
-            <Compass className="mx-auto h-8 w-8 text-brand-600" />
-            <h1 className="mt-2 text-xl font-semibold">{mode === "signin" ? `Sign in to ${product.name}` : "Create your account"}</h1>
+    <main className="grid min-h-screen lg:grid-cols-2">
+      <section className="relative hidden overflow-hidden bg-gradient-to-br from-brand-700 via-brand to-violet-700 p-12 text-white lg:flex lg:flex-col lg:justify-between">
+        <div className="pointer-events-none absolute -left-24 bottom-0 h-96 w-96 rounded-full bg-white/10 blur-3xl" />
+        <div className="relative flex items-center gap-2.5 text-lg font-semibold"><Compass className="h-5 w-5" /> {product.name}</div>
+        <div className="relative max-w-md">
+          <div className="mb-6 inline-block rounded-3xl bg-white/95 p-2 shadow-pop"><Owl size={120} /></div>
+          <h2 className="text-3xl font-semibold leading-tight tracking-tight">An AI strategist that investigates before it recommends.</h2>
+          <ul className="mt-6 space-y-2 text-sm text-white/85">
+            <li>✓ Consulting-style interview that asks the highest-value questions first</li>
+            <li>✓ Facts, inferences and assumptions always labelled</li>
+            <li>✓ You validate every hypothesis before the strategy is built</li>
+            <li>✓ Branded PDF, Word and PowerPoint deliverables</li>
+          </ul>
+        </div>
+        <p className="relative text-xs text-white/60">{product.tagline}</p>
+      </section>
+      <section className="flex items-center justify-center px-4 py-12">
+        <div className="w-full max-w-sm space-y-6">
+          <div>
+            <div className="mb-4 lg:hidden"><Owl size={72} /></div>
+            <h1 className="text-2xl font-semibold tracking-tight">{mode === "signin" ? `Welcome back` : "Create your account"}</h1>
+            <p className="mt-1 text-sm text-muted">{mode === "signin" ? `Sign in to ${product.name}` : "Start your first marketing case in minutes."}</p>
           </div>
           {isDemoMode ? (
             <>
@@ -91,8 +108,8 @@ export default function LoginPage() {
             </form>
           )}
           {isDemoMode && <ErrorNote error={error} />}
-        </CardBody>
-      </Card>
+        </div>
+      </section>
     </main>
   );
 }

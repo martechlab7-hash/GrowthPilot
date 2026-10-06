@@ -107,6 +107,9 @@ export function ReportView({ view, ctl, canManage }: CaseTabProps) {
               <option value="default">Use default consulting style</option>
             </Select>
           </div>
+          <Button variant="outline" onClick={() => window.print()} title="Uses your browser's print dialog — choose “Save as PDF”">
+            <Download className="h-4 w-4" /> Print / Save as PDF
+          </Button>
           {(["pdf", "docx", "pptx", "md"] as const).map((f) => (
             <Button key={f} variant="outline" loading={downloading === f} onClick={() => download(f)}>
               <Download className="h-4 w-4" /> {{ pdf: "PDF", docx: "Word", pptx: "PowerPoint", md: "Markdown" }[f]}
@@ -119,16 +122,21 @@ export function ReportView({ view, ctl, canManage }: CaseTabProps) {
       {!model ? (
         <Spinner label="Building report…" />
       ) : (
-        <article className="rounded-xl border border-line bg-white px-8 py-10 shadow-sm">
+        <article className="rounded-2xl border border-line bg-white px-6 py-10 shadow-card sm:px-10" style={{ fontFamily: model.brand.fontFamily }}>
           <header className="mb-8 border-b border-line pb-6">
+            {model.brand.logoDataUrl && (
+              // eslint-disable-next-line @next/next/no-img-element -- data URL from brand settings
+              <img src={model.brand.logoDataUrl} alt={`${model.companyName || "Company"} logo`} className="mb-5 max-h-12 max-w-[220px] object-contain" />
+            )}
             <div className="h-1 w-16 rounded" style={{ background: model.brand.accentColor }} />
-            <h1 className="mt-4 text-3xl font-semibold tracking-tight" style={{ color: model.brand.primaryColor }}>{model.title}</h1>
+            <h1 className="mt-4 text-3xl font-semibold tracking-tight" style={{ color: model.brand.primaryColor, fontFamily: model.brand.headingFont || model.brand.fontFamily }}>{model.title}</h1>
+            {model.brand.tagline && <p className="mt-1 text-sm italic text-muted">{model.brand.tagline}</p>}
             <p className="mt-1 text-muted">{model.subtitle}{model.companyName ? ` · ${model.companyName}` : ""} · {model.generatedAt.slice(0, 10)}</p>
           </header>
           <div className="space-y-10">
             {model.sections.map((s) => (
               <section key={s.id} className="space-y-3">
-                <h2 className="text-lg font-semibold" style={{ color: model.brand.primaryColor }}>{s.title}</h2>
+                <h2 className="text-lg font-semibold" style={{ color: model.brand.primaryColor, fontFamily: model.brand.headingFont || model.brand.fontFamily }}>{s.title}</h2>
                 {s.blocks.map((b, i) => <BlockView key={i} b={b} />)}
               </section>
             ))}

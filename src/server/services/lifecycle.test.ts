@@ -30,6 +30,7 @@ function fixture(req: ChatRequest): unknown {
   }
   if (sys.includes("Activation Agent")) return { customerJourney: ["Search", "Booking", "Travel"].map((stage) => ({ stage, customerNeed: "n", customerBehavior: "b", painPoint: "p", businessObjective: "o", data: ["d"], trigger: "t", activation: "a", technology: ["CDP"], kpi: "k" })), journeys: [{ name: "Winback", objective: "Retain", audience: "At-risk", channels: ["Email"], controlGroup: "10%", steps: [{ id: "s1", type: "trigger", label: "Purchase" }, { id: "s2", type: "channel", label: "Email" }] }] };
   if (sys.includes("Measurement Agent")) return { northStar: "Repeat booking rate", kpis: ["business", "customer", "marketing"].map((level) => ({ name: `${level} kpi`, definition: "d", level, type: "lagging" })), attribution: "Holdout", incrementality: "Control groups", experiments: [{ hypothesis: "h", audience: "a", control: "c", treatment: "t", primaryKpi: "p", secondaryKpis: [], sampleSize: "s", duration: "6 weeks", expectedLift: "5% (assumption)", successCriteria: "sig" }] };
+  if (sys.includes("Pilot, the case assistant")) return { answer: prompt.includes("weather") ? "I can only help with this case." : "The top driver is frequent flyers lapsing (Hypothesis 1).", citations: ["Hypothesis 1"], outOfScope: prompt.includes("weather"), followUps: ["What is the base-case ROI?"] };
   if (sys.includes("Report Agent")) return { executive: { whatIsHappening: "Frequent flyers are lapsing.", whyItIsHappening: ["Late detection"], whatWeShouldDo: ["Predictive churn"], whatItWillDeliver: "Modelled ₹160M", whatHappensNext: { days30: ["Baseline"], days60: ["Pilot"], days90: ["Scale"] } }, keyFindings: ["k"], customerInsights: ["c"], dataAssessment: "d", technologyAssessment: "t", roadmap: [{ horizon: "0-30 days", theme: "Quick wins", initiatives: ["i"] }], risks: [{ risk: "r", mitigation: "m" }], dependencies: ["d"], nextSteps: ["n"] };
   throw new Error(`Unexpected agent: ${sys.slice(0, 80)}`);
 }
@@ -57,6 +58,7 @@ vi.mock("./providers", async (orig) => {
 });
 
 const svc = await import("./cases");
+const chat = await import("./chat");
 const { renderReport } = await import("@/reports/render");
 const { DEFAULT_BRAND } = await import("@/domain/types");
 
@@ -69,7 +71,7 @@ const authFor = (orgId: string): AuthContext => ({ uid: `u-${orgId}`, email: "a@
 describe("consulting lifecycle", () => {
   let store: MemoryStore;
   beforeEach(async () => {
-    store = new MemoryStore();
+    store = new MemoryStore(undefined, true);
     setStore(store);
     for (const org of ["org1", "org2"]) await store.collection<{ id: string; plan: string }>("organizations").set({ id: org, plan: "business" });
     prompts.length = 0;
@@ -143,7 +145,14 @@ describe("consulting lifecycle", () => {
     expect(view.case.economics!.inputProvenance.eligibleCustomers).toBe("assumption");
     expect(view.case.economics!.scenarios.find((s) => s.name === "base")!.incrementalRevenue).toBe(160_000_000);
 
+    await expect(chat.askCase(auth, created.id, "What is happening?")).rejects.toMatchObject({ code: "CHAT_LOCKED" });
     view = await svc.generateReport(auth, created.id);
+    const conv = await chat.askCase(auth, created.id, "What is the main driver?");
+    expect(conv.messages.at(-1)).toMatchObject({ role: "assistant", citations: ["Hypothesis 1"], outOfScope: false });
+    const off = await chat.askCase(auth, created.id, "What's the weather in Paris?");
+    expect(off.messages.at(-1)!.outOfScope).toBe(true);
+    expect((await chat.getChat(auth, created.id)).messages).toHaveLength(4);
+    await expect(chat.getChat(authFor("org2"), created.id)).rejects.toMatchObject({ status: 404 });
     expect(view.case.status).toBe("completed");
     expect(view.case.progress).toBe(100);
 
@@ -161,6 +170,21 @@ describe("consulting lifecycle", () => {
     const diff = await svc.compareVersions(auth, created.id, history.versions.at(-1)!.id, history.versions[0]!.id);
     expect(diff.recommendations.added).toContain("Predictive churn intervention");
   }, 20_000);
+
+  it("records every hypothesis review action without invalid values", async () => {
+    const auth = authFor("org1");
+    const c = await svc.createCase(auth, { name: "Review actions", problemStatement: "Customer retention has declined by 12% this year.", currency: "USD" });
+    await svc.diagnose(auth, c.id, true);
+    const v = await svc.generateHypotheses(auth, c.id);
+    const [h1, h2] = v.case.hypotheses;
+    let r = await svc.reviewHypothesis(auth, c.id, h1!.id, { action: "agree" });
+    expect(r.case.hypotheses.find((h) => h.id === h1!.id)!.status).toBe("agreed");
+    expect(r.case.hypotheses.find((h) => h.id === h1!.id)!.reviewedAt).toBeTruthy();
+    r = await svc.reviewHypothesis(auth, c.id, h2!.id, { action: "edit", statement: "Edited without any feedback text at all" });
+    expect(r.case.hypotheses.find((h) => h.id === h2!.id)).toMatchObject({ status: "agreed", editedByUser: true });
+    r = await svc.reviewHypothesis(auth, c.id, h1!.id, { action: "disagree", feedback: "Changed my mind" });
+    expect(r.case.hypotheses.find((h) => h.id === h1!.id)!.status).toBe("disagreed");
+  });
 
   it("isolates tenants", async () => {
     const c = await svc.createCase(authFor("org1"), { name: "Private case", problemStatement: "Conversion dropped after a website redesign last month.", currency: "USD" });
