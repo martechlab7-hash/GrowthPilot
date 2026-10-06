@@ -10,7 +10,10 @@ export async function renderPdf(input: ReportModel): Promise<Buffer> {
   const doc = new PDFDocument({ size: "A4", margins: { top: MARGIN + 10, bottom: MARGIN + 10, left: MARGIN, right: MARGIN }, bufferPages: true, info: { Title: m.title, Author: m.companyName || "GrowthPilot" } });
   const chunks: Buffer[] = [];
   doc.on("data", (c: Buffer) => chunks.push(c));
-  const done = new Promise<Buffer>((resolve) => doc.on("end", () => resolve(Buffer.concat(chunks))));
+  const done = new Promise<Buffer>((resolve, reject) => {
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
+  });
   const width = doc.page.width - MARGIN * 2;
   const { primaryColor: primary, secondaryColor: secondary, accentColor: accent } = m.brand;
 

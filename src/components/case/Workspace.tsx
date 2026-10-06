@@ -120,7 +120,7 @@ export function Workspace({ id }: { id: string }) {
 
   return (
     <div className="mx-auto max-w-7xl">
-      <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+      <div className="no-print mb-5 flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <Link href="/cases" className="text-xs text-muted hover:text-ink">← Cases</Link>
           <h1 className="mt-1 truncate text-2xl font-semibold tracking-tight">{c.name}</h1>
@@ -141,7 +141,7 @@ export function Workspace({ id }: { id: string }) {
       </div>
 
       {c.pendingOperation && !ctl.busy && (
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        <div className="no-print mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           <span className="flex min-w-0 items-start gap-2"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> <span className="break-words">{c.pendingOperation.message}</span></span>
           <div className="flex gap-2">
             {canManage && <Button size="sm" onClick={() => retry(c.pendingOperation!.operation)}>Retry now</Button>}
@@ -149,16 +149,16 @@ export function Workspace({ id }: { id: string }) {
           </div>
         </div>
       )}
-      <ActivityPanel caseId={c.id} busy={ctl.busy} />
+      <div className="no-print"><ActivityPanel caseId={c.id} busy={ctl.busy} /></div>
       {c.analysisStale && (
-        <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+        <div className="no-print mb-4 flex items-center justify-between gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
           <span className="flex items-center gap-2"><RefreshCw className="h-4 w-4" /> New information was added after the diagnosis. Re-running it may change the conclusions.</span>
           {canManage && <Button size="sm" variant="outline" loading={ctl.busy === "Diagnosing"} onClick={() => ctl.run("Diagnosing", "/diagnose", { body: { override: true } })}>Re-run diagnosis</Button>}
         </div>
       )}
       <ErrorNote error={ctl.error} />
 
-      <div className="mt-4 grid gap-6 lg:grid-cols-[220px_1fr]">
+      <div className="mt-4 grid gap-6 lg:grid-cols-[220px_1fr] print:block">
         <aside className="no-print space-y-5">
           <nav className="rounded-xl border border-line bg-white p-2">
             {TABS.map(([t, label]) => (

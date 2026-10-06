@@ -107,6 +107,9 @@ export function ReportView({ view, ctl, canManage }: CaseTabProps) {
               <option value="default">Use default consulting style</option>
             </Select>
           </div>
+          <Button variant="outline" onClick={() => window.print()} title="Uses your browser's print dialog — choose “Save as PDF”">
+            <Download className="h-4 w-4" /> Print / Save as PDF
+          </Button>
           {(["pdf", "docx", "pptx", "md"] as const).map((f) => (
             <Button key={f} variant="outline" loading={downloading === f} onClick={() => download(f)}>
               <Download className="h-4 w-4" /> {{ pdf: "PDF", docx: "Word", pptx: "PowerPoint", md: "Markdown" }[f]}
