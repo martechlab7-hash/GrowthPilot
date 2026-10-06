@@ -63,7 +63,8 @@ export function useCase(id: string) {
         return true;
       } catch (e) {
         if (mounted.current) {
-          setError(e instanceof ApiError && e.code === "AI_UNAVAILABLE" ? `${e.message}` : (e as Error).message);
+          const reasons = e instanceof ApiError && e.code === "AI_UNAVAILABLE" && Array.isArray(e.details) ? (e.details as string[]) : [];
+          setError(reasons.length ? `${e instanceof Error ? e.message : ""} Reason: ${reasons.at(-1)}` : (e as Error).message);
           if (e instanceof ApiError && e.code === "AI_UNAVAILABLE") void load();
         }
         return false;

@@ -30,7 +30,7 @@ The product name is configuration (`NEXT_PUBLIC_PRODUCT_NAME`), so the platform 
 | MarTech maturity assessment (6 dimensions, levels 1–6, capability gaps) | ✅ |
 | Data-gap engine, assumption register, decision log, versioning + version compare | ✅ |
 | Reports: web, **PDF, Word, PowerPoint**, Markdown — one report model, branded | ✅ |
-| AI gateway: OpenAI, Anthropic, Gemini, any OpenAI-compatible; tiered model routing; retry → fallback provider → resumable failure | ✅ |
+| AI gateway: OpenAI, Anthropic, Gemini, OpenRouter, any OpenAI-compatible; tiered model routing; retry → fallback provider → resumable failure | ✅ |
 | API keys: AES-256-GCM at rest with key rotation, masked, server-only, test connection | ✅ |
 | PII masking before any LLM call, restored on the way back | ✅ |
 | Usage & cost metering, plan limits, rate limiting, audit log, structured logs | ✅ |
