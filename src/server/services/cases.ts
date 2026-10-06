@@ -176,7 +176,7 @@ async function withAi<T>(auth: AuthContext, c: Case, operation: string, fn: (dep
     return await fn({ gateway, call: { organizationId: auth.orgId, userId: auth.uid, caseId: c.id } });
   } catch (err) {
     if (err instanceof AIUnavailableError) {
-      await mutate(auth, c.id, (cur) => ({ ...cur, pendingOperation: { operation, message: err.message, failedAt: now() } }));
+      await mutate(auth, c.id, (cur) => ({ ...cur, pendingOperation: { operation, message: `${err.message}${err.attempts.length ? ` Reason: ${err.attempts.at(-1)!.slice(0, 300)}` : ""}`, failedAt: now() } }));
     }
     throw err;
   }
