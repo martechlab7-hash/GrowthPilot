@@ -1,6 +1,7 @@
 import "server-only";
 import fs from "node:fs";
 import path from "node:path";
+import { applyQuery } from "./query";
 import type { Collection, CollectionName, DataStore, QueryOptions } from "./types";
 
 type Row = { id: string } & Record<string, unknown>;
@@ -66,25 +67,7 @@ export class MemoryStore implements DataStore {
         flush();
       },
       async query(opts: QueryOptions = {}) {
-        let rows = [...table().values()];
-        for (const [field, op, value] of opts.where ?? []) {
-          rows = rows.filter((r) => {
-            const v = r[field] as string | number;
-            if (op === "==") return v === value;
-            if (op === ">=") return v >= (value as string | number);
-            return v <= (value as string | number);
-          });
-        }
-        if (opts.orderBy) {
-          const { field, direction } = opts.orderBy;
-          rows.sort((a, b) => {
-            const av = a[field] as string | number;
-            const bv = b[field] as string | number;
-            const cmp = av < bv ? -1 : av > bv ? 1 : 0;
-            return direction === "asc" ? cmp : -cmp;
-          });
-        }
-        if (opts.limit) rows = rows.slice(0, opts.limit);
+        const rows = applyQuery([...table().values()], opts);
         return rows.map((r) => clone(r) as unknown as T);
       },
       async transact(id, fn) {
