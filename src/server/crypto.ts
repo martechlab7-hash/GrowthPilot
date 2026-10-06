@@ -1,6 +1,7 @@
 import "server-only";
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { env } from "./env";
+import { parseKeyring } from "./keyring";
 
 export interface EncryptedSecret {
   v: string; // key version
@@ -13,12 +14,7 @@ let demoKey: Buffer | undefined;
 
 function keyring(): Map<string, Buffer> {
   const ring = new Map<string, Buffer>();
-  for (const part of env.encryptionKeys.split(",").map((s) => s.trim()).filter(Boolean)) {
-    const [version, b64] = part.includes(":") ? part.split(":", 2) : ["v1", part];
-    const key = Buffer.from(b64!, "base64");
-    if (key.length !== 32) throw new Error(`Encryption key ${version} must be 32 bytes (base64)`);
-    ring.set(version!, key);
-  }
+  for (const { version, key } of parseKeyring(env.encryptionKeys)) ring.set(version, key);
   if (ring.size === 0) {
     if (!env.demoMode) {
       throw new Error("CREDENTIALS_ENCRYPTION_KEYS is not configured; refusing to store credentials.");
