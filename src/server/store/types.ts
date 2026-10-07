@@ -31,6 +31,7 @@ export const COLLECTIONS = [
   "case_chats",
   "knowledge_resources",
   "knowledge_benchmarks",
+  "case_assets",
 ] as const;
 export type CollectionName = (typeof COLLECTIONS)[number];
 

@@ -6,6 +6,7 @@ import {
   AIProviderError,
   AIUnavailableError,
   type AIEvent,
+  type ChatImage,
   type ChatMessage,
   type ModelTier,
   type ProviderAdapter,
@@ -25,6 +26,8 @@ export interface StructuredRequest<T extends z.ZodType> {
   tier: ModelTier;
   system: string;
   prompt: string;
+  /** Images sent with the prompt (vision-capable models only). */
+  images?: ChatImage[];
   schema: T;
   maxTokens?: number;
   context: GatewayCallContext;
@@ -92,7 +95,7 @@ export class AIGateway {
         attempts.push(`${provider.label}: no model configured for tier ${req.tier}`);
         continue;
       }
-      const messages: ChatMessage[] = [{ role: "user", content: req.prompt }];
+      const messages: ChatMessage[] = [{ role: "user", content: req.prompt, ...(req.images?.length ? { images: req.images } : {}) }];
       let repaired = false;
 
       for (let attempt = 0; attempt <= this.retries; attempt++) {

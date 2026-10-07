@@ -125,6 +125,12 @@ export const InputTypeSchema = z.enum([
   "select",
   "multiselect",
   "boolean",
+  /** Up to 5 web/app-store URLs. */
+  "links",
+  /** Uploaded screenshots of customer communications (stored as asset ids). */
+  "images",
+  /** Communication calendar rows: "Channel | Purpose | Frequency | Timing | Scheduled/Triggered". */
+  "cadence",
 ]);
 export type InputType = z.infer<typeof InputTypeSchema>;
 
@@ -159,6 +165,69 @@ export const ScoredQuestionSchema = QuestionSchema.extend({
   /** A value Pilot inferred and wants confirmed (pre-selected in the UI). */
   suggested: FieldValueSchema.optional(),
 });
+
+/** Pilot's read of one communication screenshot. */
+export const CreativeReviewSchema = z.object({
+  summary: z.string(),
+  channel: z.string().optional(),
+  message: z.string().optional(),
+  cta: z.string().optional(),
+  offer: z.string().optional(),
+  personalisation: z.string().optional(),
+  strengths: z.array(z.string()),
+  issues: z.array(z.string()),
+  ideas: z.array(z.string()),
+});
+export type CreativeReview = z.infer<typeof CreativeReviewSchema>;
+
+/** A screenshot of a customer communication. The image itself lives in case_assets. */
+export const CommsScreenshotSchema = z.object({
+  id: z.string(),
+  name: z.string().max(120),
+  channel: z.string().max(40).optional(),
+  mediaType: z.enum(["image/jpeg", "image/png", "image/webp"]),
+  sizeBytes: z.number(),
+  width: z.number().optional(),
+  height: z.number().optional(),
+  createdAt: z.string(),
+  createdBy: z.string(),
+  status: z.enum(["pending", "reviewed", "failed"]),
+  review: CreativeReviewSchema.optional(),
+  error: z.string().optional(),
+});
+export type CommsScreenshot = z.infer<typeof CommsScreenshotSchema>;
+
+/** What Pilot read on a linked page (facts extracted in code) and its review. */
+export const PageReviewSchema = z.object({
+  url: z.string(),
+  status: z.enum(["pending", "reviewed", "read", "failed", "blocked"]),
+  checkedAt: z.string(),
+  title: z.string().optional(),
+  facts: z
+    .object({
+      description: z.string().optional(),
+      headings: z.array(z.string()),
+      ctas: z.array(z.string()),
+      forms: z.number(),
+      formFields: z.number(),
+      offers: z.array(z.string()),
+      words: z.number(),
+      images: z.number(),
+      trustSignals: z.array(z.string()),
+    })
+    .optional(),
+  review: CreativeReviewSchema.omit({ channel: true, personalisation: true }).optional(),
+  error: z.string().optional(),
+});
+export type PageReview = z.infer<typeof PageReviewSchema>;
+
+export const CommsSchema = z.object({
+  screenshots: z.array(CommsScreenshotSchema),
+  pages: z.array(PageReviewSchema),
+  /** Pilot's overall read across all screenshots. */
+  overall: z.string().optional(),
+});
+export type Comms = z.infer<typeof CommsSchema>;
 
 /** Data the user shared (CSV/TSV/text). Only a masked profile and sample are kept, never the raw file. */
 export const DatasetSchema = z.object({
@@ -614,6 +683,10 @@ export const CaseSchema = z.object({
   adaptiveQuestions: z.array(QuestionSchema),
   questionPlan: QuestionPlanSchema.optional(),
   datasets: z.array(DatasetSchema).optional(),
+  /** Saved brand used for this case's reports and share link (organisation default when unset). */
+  brandId: z.string().optional(),
+  /** Communication screenshots and linked pages the user shared, with Pilot's reviews. */
+  comms: CommsSchema.optional(),
   debateStatus: z.enum(["pending", "done", "failed"]).optional(),
   /** Team discussion on hypotheses, recommendations or the case. */
   comments: z
@@ -760,8 +833,14 @@ export const BrandProfileSchema = z.object({
     .optional(),
   logoWidth: z.number().int().min(1).max(4000).optional(),
   logoHeight: z.number().int().min(1).max(4000).optional(),
+  /** Where the logo was imported from, when it came from a link. */
+  logoSourceUrl: z.string().url().max(500).optional(),
 });
 export type BrandProfile = z.infer<typeof BrandProfileSchema>;
+
+/** A saved brand: an organisation can keep several (e.g. one per client or sub-brand). */
+export const BrandInputSchema = BrandProfileSchema.extend({ name: z.string().trim().min(1, "Give the brand a name").max(80) });
+export type Brand = z.infer<typeof BrandInputSchema> & { id: string; isDefault: boolean; updatedAt?: string };
 
 export const DEFAULT_BRAND: BrandProfile = {
   companyName: "",

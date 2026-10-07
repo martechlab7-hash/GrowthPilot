@@ -67,3 +67,10 @@ export async function apiDownload(path: string): Promise<void> {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+/** Authenticated image (or other file) as an object URL; the caller revokes it. */
+export async function apiObjectUrl(path: string): Promise<string> {
+  const res = await fetch(path, { headers: await authHeader(), cache: "force-cache" });
+  if (!res.ok) throw new ApiError(res.status, `Could not load the file (${res.status}).`);
+  return URL.createObjectURL(await res.blob());
+}

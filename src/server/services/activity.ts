@@ -55,6 +55,8 @@ const OPERATION_LABELS: Record<string, string> = {
   debate: "Debate panel stress-testing hypotheses",
   extract: "Reading facts from your answer",
   chat: "Answering your question",
+  comms_review: "Reviewing your message screenshots",
+  page_review: "Reading your linked pages",
 };
 
 const col = () => getStore().collection<CaseActivity>("case_activity");

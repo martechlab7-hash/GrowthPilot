@@ -17,7 +17,20 @@ function build(kind: ProviderKind, defaultBase: string | undefined): ProviderAda
       if (!base) throw new AIProviderError("Base URL is required", kind, undefined, false);
       const body: Record<string, unknown> = {
         model: req.model,
-        messages: [{ role: "system", content: req.system }, ...req.messages],
+        messages: [
+          { role: "system", content: req.system },
+          ...req.messages.map((m) =>
+            m.images?.length
+              ? {
+                  role: m.role,
+                  content: [
+                    { type: "text", text: m.content },
+                    ...m.images.map((i) => ({ type: "image_url", image_url: { url: `data:${i.mediaType};base64,${i.data}` } })),
+                  ],
+                }
+              : { role: m.role, content: m.content },
+          ),
+        ],
       };
       if (kind === "openai") {
         // Reasoning models (gpt-5, o-series) spend hidden reasoning tokens from this budget.

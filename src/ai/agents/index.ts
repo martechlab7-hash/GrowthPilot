@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type {
   ActivationJourney,
+  CreativeReview,
   Debate,
   Case,
   Diagnosis,
@@ -21,7 +22,7 @@ import { createVault, maskPii, restorePii, type PiiVault } from "@/engine/pii";
 import { QUESTION_BANK } from "@/knowledge/questionBank";
 import { getFramework } from "@/knowledge/frameworks";
 import type { AIGateway, GatewayCallContext } from "../gateway";
-import type { AIEvent, ModelTier } from "../types";
+import type { AIEvent, ChatImage, ModelTier } from "../types";
 import { buildAgentContext, serializeContext } from "./context";
 import * as P from "./prompts";
 import * as S from "./schemas";
@@ -51,6 +52,8 @@ const AGENT_LABELS: Record<string, string> = {
   measurement: "Measurement Agent",
   report: "Report Agent",
   chat: "Case assistant",
+  comms_review: "Comms review",
+  page_review: "Page review",
 };
 
 interface AgentDeps {
@@ -73,7 +76,7 @@ async function runAgent<T extends z.ZodType>(
   system: string,
   sections: Record<string, string>,
   schema: T,
-  opts: { maxTokens?: number; case?: Case } = {},
+  opts: { maxTokens?: number; case?: Case; images?: ChatImage[] } = {},
 ): Promise<z.infer<T>> {
   const name = AGENT_LABELS[agent] ?? agent;
   const maxTokens = opts.maxTokens;
@@ -93,6 +96,7 @@ async function runAgent<T extends z.ZodType>(
   const traced = schema instanceof z.ZodObject ? schema.extend({ thinking_summary: z.array(z.string()).max(8).optional() }) : schema;
   const { data } = await deps.gateway.generateStructured({
     agent, tier, system: `${system}\n${THINKING_NOTE}`, prompt, schema: traced, context: deps.call, ...(maxTokens ? { maxTokens } : {}),
+    ...(opts.images?.length ? { images: opts.images } : {}),
     onEvent: (e) => deps.progress?.ai(e),
   });
   deps.progress?.step(`${name}: output validated`, "Structured JSON matched the expected schema");
@@ -118,6 +122,12 @@ function explainInputs(deps: AgentDeps, agent: string, c: Case) {
   if (c.datasets?.length) {
     p.analysis("Using data you shared", c.datasets.map((d) => (d.kind === "table" ? `${d.name} (${d.rowCount} rows, ${d.columns?.length} columns)` : `${d.name} (notes)`)).join(" · "));
   }
+  const shots = c.comms?.screenshots.filter((x) => x.review).length ?? 0;
+  const pages = c.comms?.pages.filter((x) => x.facts).length ?? 0;
+  const cadence = c.context.fields["marketing.cadence"]?.value;
+  if (shots || pages || (Array.isArray(cadence) && cadence.length)) {
+    p.analysis("Using your real communications", [shots ? `${shots} reviewed message screenshot(s)` : "", pages ? `${pages} page(s) read` : "", Array.isArray(cadence) && cadence.length ? `contact calendar with ${cadence.length} message(s)` : ""].filter(Boolean).join(" · "));
+  }
   const agreed = c.hypotheses.filter((h) => h.status === "agreed" || h.status === "partially_agreed").length;
   const rejected = c.hypotheses.filter((h) => h.status === "disagreed").length;
   if (["recommendation", "activation", "measurement", "report", "hypothesis"].includes(agent) && (agreed || rejected)) {
@@ -137,12 +147,15 @@ export interface ExtractedFact {
   confidence: "high" | "medium" | "low";
 }
 
+const RICH_INPUTS = new Set(["links", "images", "cadence"]);
+
 /** Context extraction: structured facts explicitly stated in free text. */
 export async function extractFacts(
   deps: AgentDeps,
   text: string,
 ): Promise<{ facts: ExtractedFact[]; problemTypes: ProblemType[] }> {
-  const allowed = QUESTION_BANK.map((q) => ({
+  // Links, screenshots and calendars are only ever entered through their own inputs.
+  const allowed = QUESTION_BANK.filter((q) => !RICH_INPUTS.has(q.input)).map((q) => ({
     key: q.key,
     input: q.input,
     ...(q.options ? { options: q.options } : {}),
@@ -154,7 +167,7 @@ export async function extractFacts(
   const byKey = new Map(QUESTION_BANK.map((q) => [q.key, q]));
   const facts = out.facts.filter((f) => {
     const q = byKey.get(f.key);
-    if (!q) return false;
+    if (!q || RICH_INPUTS.has(q.input)) return false;
     if (q.input === "select") return typeof f.value === "string" && !!q.options?.includes(f.value);
     if (q.input === "multiselect") {
       return Array.isArray(f.value) && f.value.length > 0 && f.value.every((v) => q.options?.includes(v));
@@ -392,4 +405,61 @@ export async function answerCaseQuestion(
     "CONVERSATION SO FAR": history.slice(-10).map((t) => `${t.role.toUpperCase()}: ${t.content.slice(0, 2000)}`).join("\n") || "(none)",
     QUESTION: question,
   }, S.ChatOutput, { case: c });
+}
+
+const clean = (xs: string[] | undefined, n: number) => (xs ?? []).map((x) => x.trim()).filter(Boolean).slice(0, n);
+
+/** Comms review: a vision model reads screenshots of the client's real messages. */
+export async function reviewScreenshots(
+  deps: AgentDeps,
+  c: Case,
+  shots: { channel?: string; name: string; image: ChatImage }[],
+): Promise<{ reviews: (CreativeReview | undefined)[]; overall: string }> {
+  const out = await runAgent(deps, "comms_review", "fast", P.COMMS_REVIEW_SYSTEM, {
+    "CASE CONTEXT": serializeContext(buildAgentContext(c)),
+    SCREENSHOTS: JSON.stringify(shots.map((s, index) => ({ index, file: s.name, ...(s.channel ? { channel: s.channel } : {}) }))),
+  }, S.CommsReviewOutput, { maxTokens: 6_000, images: shots.map((s) => s.image) });
+  const reviews = shots.map((_, i) => {
+    const r = out.reviews.find((x) => x.index === i);
+    if (!r) return undefined;
+    return {
+      summary: r.summary.trim(),
+      ...(r.channel?.trim() ? { channel: r.channel.trim() } : {}),
+      ...(r.message?.trim() ? { message: r.message.trim() } : {}),
+      ...(r.cta?.trim() ? { cta: r.cta.trim() } : {}),
+      ...(r.offer?.trim() ? { offer: r.offer.trim() } : {}),
+      ...(r.personalisation?.trim() ? { personalisation: r.personalisation.trim() } : {}),
+      strengths: clean(r.strengths, 4),
+      issues: clean(r.issues, 4),
+      ideas: clean(r.ideas, 3),
+    };
+  });
+  return { reviews, overall: out.overall.trim() };
+}
+
+/** Page review: judges pages from facts extracted from their HTML. */
+export async function reviewPages(
+  deps: AgentDeps,
+  c: Case,
+  pages: { url: string; description: string }[],
+): Promise<Record<string, Omit<CreativeReview, "channel" | "personalisation">>> {
+  const out = await runAgent(deps, "page_review", "fast", P.PAGE_REVIEW_SYSTEM, {
+    "CASE CONTEXT": serializeContext(buildAgentContext(c)),
+    PAGES: pages.map((p) => p.description).join("\n\n"),
+  }, S.PageReviewOutput, { maxTokens: 5_000 });
+  const result: Record<string, Omit<CreativeReview, "channel" | "personalisation">> = {};
+  for (const p of out.pages) {
+    const match = pages.find((x) => x.url === p.url.trim()) ?? pages.find((x) => p.url.includes(x.url) || x.url.includes(p.url));
+    if (!match) continue;
+    result[match.url] = {
+      summary: p.summary.trim(),
+      ...(p.message?.trim() ? { message: p.message.trim() } : {}),
+      ...(p.cta?.trim() ? { cta: p.cta.trim() } : {}),
+      ...(p.offer?.trim() ? { offer: p.offer.trim() } : {}),
+      strengths: clean(p.strengths, 4),
+      issues: clean(p.issues, 4),
+      ideas: clean(p.ideas, 3),
+    };
+  }
+  return result;
 }

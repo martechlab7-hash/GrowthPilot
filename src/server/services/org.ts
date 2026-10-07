@@ -1,8 +1,7 @@
 import "server-only";
 import { z } from "zod";
-import { DEFAULT_BRAND, BrandProfileSchema, type BrandProfile, type Organization, type UserProfile, type AuditLogEntry } from "@/domain/types";
+import type { Organization, UserProfile, AuditLogEntry } from "@/domain/types";
 import { badRequest, forbidden } from "../errors";
-import { isValidPng } from "@/reports/brandAssets";
 import { getStore } from "../store";
 import type { AuthContext } from "../auth";
 import { COLLECTIONS } from "../store/types";
@@ -13,7 +12,6 @@ export const BootstrapSchema = z.object({
 });
 
 type OrgDoc = Organization & { id: string };
-type BrandDoc = BrandProfile & { id: string; organizationId: string; updatedAt: string; updatedBy: string };
 
 export async function bootstrapAccount(auth: AuthContext, input: z.infer<typeof BootstrapSchema>) {
   if (auth.profile) return { organization: await getStore().collection<OrgDoc>("organizations").get(auth.profile.organizationId), profile: auth.profile };
@@ -58,30 +56,6 @@ export async function audit(orgId: string, actorId: string, action: string, targ
     createdAt: new Date().toISOString(),
   };
   await getStore().collection<AuditLogEntry>("audit_logs").set(entry);
-}
-
-export async function getBrand(orgId: string): Promise<BrandProfile> {
-  const doc = await getStore().collection<BrandDoc>("brand_profiles").get(orgId);
-  if (!doc) return DEFAULT_BRAND;
-  const { id: _i, organizationId: _o, updatedAt: _u, updatedBy: _b, ...brand } = doc;
-  void _i; void _o; void _u; void _b;
-  return { ...DEFAULT_BRAND, ...brand };
-}
-
-export async function saveBrand(auth: AuthContext, input: unknown): Promise<BrandProfile> {
-  const brand = BrandProfileSchema.parse(input);
-  if (brand.logoDataUrl && !isValidPng(Buffer.from(brand.logoDataUrl.slice(brand.logoDataUrl.indexOf(",") + 1), "base64"))) {
-    throw badRequest("The logo file could not be read. Upload a PNG, JPG, SVG or WebP image.");
-  }
-  await getStore().collection<BrandDoc>("brand_profiles").set({
-    ...brand,
-    id: auth.orgId,
-    organizationId: auth.orgId,
-    updatedAt: new Date().toISOString(),
-    updatedBy: auth.uid,
-  });
-  await audit(auth.orgId, auth.uid, "brand.update", auth.orgId);
-  return brand;
 }
 
 /**

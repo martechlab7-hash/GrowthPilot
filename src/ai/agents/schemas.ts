@@ -43,7 +43,7 @@ export const InterviewOutput = z.object({
         why: z.string(),
         stage: StageSchema,
         category: QuestionCategorySchema,
-        input: InputTypeSchema,
+        input: InputTypeSchema.exclude(["links", "images", "cadence"]),
         options: z.array(z.string()).optional(),
         businessImpact: z.number().min(1).max(5),
         diagnosticValue: z.number().min(1).max(5),
@@ -235,4 +235,23 @@ export const ChatOutput = z.object({
   citations: z.array(z.string().max(160)).max(8),
   outOfScope: z.boolean(),
   followUps: z.array(z.string().max(200)).max(3),
+});
+
+const ReviewItem = z.object({
+  summary: z.string(),
+  message: z.string().optional(),
+  cta: z.string().optional(),
+  offer: z.string().optional(),
+  strengths: z.array(z.string()).max(6).default([]),
+  issues: z.array(z.string()).max(6).default([]),
+  ideas: z.array(z.string()).max(5).default([]),
+});
+
+export const CommsReviewOutput = z.object({
+  reviews: z.array(ReviewItem.extend({ index: z.number().int().min(0), channel: z.string().optional(), personalisation: z.string().optional() })),
+  overall: z.string(),
+});
+
+export const PageReviewOutput = z.object({
+  pages: z.array(ReviewItem.extend({ url: z.string() })),
 });

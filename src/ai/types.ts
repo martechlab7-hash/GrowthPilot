@@ -15,9 +15,17 @@ export const ModelMapSchema = z.object({
 });
 export type ModelMap = z.infer<typeof ModelMapSchema>;
 
+/** An inline image (base64, no data: prefix) for vision-capable models. */
+export interface ChatImage {
+  mediaType: "image/jpeg" | "image/png" | "image/webp";
+  data: string;
+}
+
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+  /** Images attached to a user turn. */
+  images?: ChatImage[];
 }
 
 export interface ChatRequest {
