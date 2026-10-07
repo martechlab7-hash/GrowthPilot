@@ -36,8 +36,8 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    match /brand_profiles/{orgId} {
-      allow read: if inOrg(orgId);
+    match /brand_profiles/{id} {
+      allow read: if inOrg(resource.data.organizationId);
       allow write: if false;
     }
 

@@ -30,6 +30,7 @@ import { prioritize } from "@/engine/prioritization";
 import { resourcesForAgents } from "./resources";
 import { memoryForAgents } from "./memory";
 import { benchmarksForAgents } from "./benchmarks";
+import { listBrands } from "./brands";
 import { getIndustry, industryIdFromName } from "@/knowledge/industries";
 import type { AuthContext } from "../auth";
 import { badRequest, forbidden, HttpError, notFound } from "../errors";
@@ -79,6 +80,8 @@ export const UpdateCaseSchema = z.object({
   status: z.enum(["draft", "discovery", "validation", "strategy", "completed"]).optional(),
   revision: z.number().int().optional(),
   dismissPending: z.boolean().optional(),
+  /** A saved brand for this case's reports; null goes back to the organisation default. */
+  brandId: z.string().max(60).nullable().optional(),
 });
 
 export const AnswerSchema = z.object({
@@ -419,6 +422,7 @@ export function withDerived(c: Case) {
 }
 
 export async function updateCase(auth: AuthContext, caseId: string, input: z.infer<typeof UpdateCaseSchema>) {
+  if (input.brandId && !(await listBrands(auth.orgId)).some((b) => b.id === input.brandId)) throw badRequest("That brand no longer exists.");
   const updated = await mutate(auth, caseId, (c) => {
     if (input.revision !== undefined && input.revision !== c.revision && input.notes !== undefined) {
       throw new HttpError(409, "This case was updated elsewhere. Reload to see the latest version.", "CONFLICT");
@@ -429,7 +433,9 @@ export async function updateCase(auth: AuthContext, caseId: string, input: z.inf
       ...(input.currency ? { currency: input.currency } : {}),
       ...(input.status ? { status: input.status } : {}),
       ...(input.notes !== undefined ? { context: { ...c.context, notes: input.notes } } : {}),
+      ...(input.brandId ? { brandId: input.brandId } : {}),
     };
+    if (input.brandId === null) delete next.brandId;
     return input.dismissPending ? clearPending(next) : next;
   });
   return withDerived(updated);

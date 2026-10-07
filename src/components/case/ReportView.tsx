@@ -4,7 +4,10 @@ import { Flowchart } from "@/components/charts/Flowchart";
 import { useEffect, useState } from "react";
 import { Download, FileText, Link2, Map as MapIcon } from "lucide-react";
 import { Button, Card, CardBody, CardHeader, EmptyState, ErrorNote, Select, Spinner } from "@/components/ui";
+import Link from "next/link";
 import { apiDownload, apiFetch } from "@/lib/client/api";
+import { useApi } from "@/lib/client/useApi";
+import type { Brand } from "@/domain/types";
 import { AUDIENCES, forAudience, type Audience, type Block, type ReportModel } from "@/reports/model";
 import type { CaseTabProps } from "./Workspace";
 
@@ -70,20 +73,32 @@ export function BlockView({ b }: { b: Block }) {
 export function ReportView({ view, ctl, canManage }: CaseTabProps) {
   const c = view.case;
   const [model, setModel] = useState<ReportModel | null>(null);
-  const [brand, setBrand] = useState<"saved" | "default">("saved");
+  const { data: brandList } = useApi<{ brands: Brand[] }>("/api/brands");
+  const brands = brandList?.brands ?? [];
+  // A saved brand id, or "default" for the plain product style.
+  const [brand, setBrand] = useState<string>(c.brandId ?? "saved");
+  const caseBrand = brands.find((b) => b.id === c.brandId) ?? brands.find((b) => b.isDefault);
+  const brandValue = brand === "saved" || (brand !== "default" && !brands.some((b) => b.id === brand)) ? caseBrand?.id ?? (brands.length ? "default" : "saved") : brand;
   const [audience, setAudience] = useState<Audience>("full");
   const [downloading, setDownloading] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    apiFetch<{ model: ReportModel }>(`/api/cases/${c.id}/report`).then((r) => setModel(r.model)).catch((e: Error) => setErr(e.message));
-  }, [c.id, c.revision]);
+    apiFetch<{ model: ReportModel }>(`/api/cases/${c.id}/report${brand === "saved" ? "" : `?brand=${encodeURIComponent(brand)}`}`).then((r) => setModel(r.model)).catch((e: Error) => setErr(e.message));
+  }, [c.id, c.revision, brand]);
+
+  const pickBrand = async (value: string) => {
+    setBrand(value);
+    if (value === "saved") return;
+    // Remember a saved brand on the case so share links and teammates use it too.
+    if (canManage && value !== "default" && value !== c.brandId) await ctl.run("Saving brand", "", { method: "PATCH", body: { brandId: value } });
+  };
 
   const download = async (format: string) => {
     setDownloading(format);
     setErr(null);
     try {
-      await apiDownload(`/api/cases/${c.id}/report/export?format=${format}&brand=${brand}&audience=${audience}`);
+      await apiDownload(`/api/cases/${c.id}/report/export?format=${format}&brand=${encodeURIComponent(brandValue)}&audience=${audience}`);
     } catch (e) {
       setErr((e as Error).message);
     } finally {
@@ -113,11 +128,13 @@ export function ReportView({ view, ctl, canManage }: CaseTabProps) {
             </Select>
           </div>
           <div className="w-64">
-            <label className="mb-1.5 block text-sm font-medium" htmlFor="brand">Would you like to apply your brand guidelines?</label>
-            <Select id="brand" value={brand} onChange={(e) => setBrand(e.target.value as "saved" | "default")}>
-              <option value="saved">Use saved brand</option>
-              <option value="default">Use default consulting style</option>
+            <label className="mb-1.5 block text-sm font-medium" htmlFor="brand">Brand</label>
+            <Select id="brand" value={brandValue} onChange={(e) => void pickBrand(e.target.value)}>
+              {brands.length === 0 && <option value="saved">Saved brand settings</option>}
+              {brands.map((b) => <option key={b.id} value={b.id}>{b.name}{b.isDefault ? " (default)" : ""}</option>)}
+              <option value="default">No brand: default consulting style</option>
             </Select>
+            {brands.length === 0 && <p className="mt-1 text-xs text-muted">Add brands in <Link href="/settings/brand" className="text-brand-600 hover:underline">Settings → Brand</Link>.</p>}
           </div>
           <Button variant="outline" onClick={() => window.print()} title="Uses your browser's print dialog — choose “Save as PDF”">
             <Download className="h-4 w-4" /> Print / Save as PDF

@@ -683,6 +683,8 @@ export const CaseSchema = z.object({
   adaptiveQuestions: z.array(QuestionSchema),
   questionPlan: QuestionPlanSchema.optional(),
   datasets: z.array(DatasetSchema).optional(),
+  /** Saved brand used for this case's reports and share link (organisation default when unset). */
+  brandId: z.string().optional(),
   /** Communication screenshots and linked pages the user shared, with Pilot's reviews. */
   comms: CommsSchema.optional(),
   debateStatus: z.enum(["pending", "done", "failed"]).optional(),
@@ -831,8 +833,14 @@ export const BrandProfileSchema = z.object({
     .optional(),
   logoWidth: z.number().int().min(1).max(4000).optional(),
   logoHeight: z.number().int().min(1).max(4000).optional(),
+  /** Where the logo was imported from, when it came from a link. */
+  logoSourceUrl: z.string().url().max(500).optional(),
 });
 export type BrandProfile = z.infer<typeof BrandProfileSchema>;
+
+/** A saved brand: an organisation can keep several (e.g. one per client or sub-brand). */
+export const BrandInputSchema = BrandProfileSchema.extend({ name: z.string().trim().min(1, "Give the brand a name").max(80) });
+export type Brand = z.infer<typeof BrandInputSchema> & { id: string; isDefault: boolean; updatedAt?: string };
 
 export const DEFAULT_BRAND: BrandProfile = {
   companyName: "",

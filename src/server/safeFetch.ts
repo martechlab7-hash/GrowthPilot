@@ -29,7 +29,17 @@ const safeLookup: LookupFunction = (hostname, options, callback) => {
   });
 };
 
-function getOnce(url: URL): Promise<{ status: number; location?: string; type: string; body: string }> {
+interface FetchPolicy {
+  accept: RegExp;
+  acceptHeader: string;
+  maxBytes: number;
+  /** Cut the body at maxBytes (pages) instead of failing (files). */
+  truncate: boolean;
+}
+
+const PAGE: FetchPolicy = { accept: /text\/html|application\/xhtml/i, acceptHeader: "text/html,application/xhtml+xml", maxBytes: MAX_BYTES, truncate: true };
+
+function getOnce(url: URL, policy: FetchPolicy): Promise<{ status: number; location?: string; type: string; body: Buffer }> {
   return new Promise((resolve, reject) => {
     const mod = url.protocol === "https:" ? https : http;
     const req = mod.request(
@@ -38,35 +48,36 @@ function getOnce(url: URL): Promise<{ status: number; location?: string; type: s
         method: "GET",
         lookup: safeLookup,
         timeout: TIMEOUT_MS,
-        headers: { "user-agent": "GrowthPilotPageReview/1.0 (+marketing page review)", accept: "text/html,application/xhtml+xml" },
+        headers: { "user-agent": "GrowthPilot/1.0 (+marketing page review)", accept: policy.acceptHeader },
       },
       (res) => {
         const status = res.statusCode ?? 0;
         const type = String(res.headers["content-type"] ?? "");
         if (status >= 300 && status < 400) {
           res.resume();
-          return resolve({ status, location: res.headers.location, type, body: "" });
+          return resolve({ status, location: res.headers.location, type, body: Buffer.alloc(0) });
         }
         if (status >= 400) {
           res.resume();
-          return resolve({ status, type, body: "" });
+          return resolve({ status, type, body: Buffer.alloc(0) });
         }
-        if (!/text\/html|application\/xhtml/i.test(type)) {
+        if (!policy.accept.test(type)) {
           res.destroy();
-          return reject(new FetchBlockedError(`Not a web page (${type.split(";")[0] || "unknown type"}).`));
+          return reject(new FetchBlockedError(`Unexpected content (${type.split(";")[0] || "unknown type"}).`));
         }
         let size = 0;
         const chunks: Buffer[] = [];
         res.on("data", (c: Buffer) => {
           size += c.length;
-          if (size > MAX_BYTES) {
+          if (size > policy.maxBytes) {
             res.destroy();
-            resolve({ status, type, body: Buffer.concat(chunks).toString("utf8") });
+            if (policy.truncate) resolve({ status, type, body: Buffer.concat(chunks) });
+            else reject(new FetchBlockedError("The file is too large."));
             return;
           }
           chunks.push(c);
         });
-        res.on("end", () => resolve({ status, type, body: Buffer.concat(chunks).toString("utf8") }));
+        res.on("end", () => resolve({ status, type, body: Buffer.concat(chunks) }));
         res.on("error", reject);
       },
     );
@@ -81,19 +92,29 @@ function getOnce(url: URL): Promise<{ status: number; location?: string; type: s
   });
 }
 
-export async function fetchPublicPage(input: string): Promise<{ url: string; html: string }> {
+async function fetchPublic(input: string, policy: FetchPolicy): Promise<{ url: string; type: string; body: Buffer }> {
   let current = normalizeUrl(input);
   if (!current) throw new FetchBlockedError("Only public http(s) links can be read.");
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-    const res = await getOnce(new URL(current));
+    const res = await getOnce(new URL(current), policy);
     if (res.location) {
       const next = normalizeUrl(new URL(res.location, current).toString());
-      if (!next) throw new FetchBlockedError("The page redirected to an address that cannot be read.");
+      if (!next) throw new FetchBlockedError("The link redirected to an address that cannot be read.");
       current = next;
       continue;
     }
-    if (res.status >= 400) throw new Error(`The page returned HTTP ${res.status}.`);
-    return { url: current, html: res.body };
+    if (res.status >= 400) throw new Error(`The link returned HTTP ${res.status}.`);
+    return { url: current, type: res.type.split(";")[0]!.trim().toLowerCase(), body: res.body };
   }
   throw new Error("Too many redirects.");
+}
+
+export async function fetchPublicPage(input: string): Promise<{ url: string; html: string }> {
+  const { url, body } = await fetchPublic(input, PAGE);
+  return { url, html: body.toString("utf8") };
+}
+
+/** A public image (e.g. a logo link), at most 3 MB. */
+export async function fetchPublicImage(input: string): Promise<{ url: string; type: string; body: Buffer }> {
+  return fetchPublic(input, { accept: /^image\/(png|jpeg|webp|gif|svg\+xml)\b/i, acceptHeader: "image/png,image/jpeg,image/webp,image/svg+xml,image/gif", maxBytes: 3_000_000, truncate: false });
 }
