@@ -38,6 +38,7 @@ The product name is configuration (`NEXT_PUBLIC_PRODUCT_NAME`), so the platform 
 | Firestore + Storage security rules (tenant isolation; credentials server-only) | ✅ |
 | **Pilot the owl** (mascot): guides AI-provider setup, shows live backend activity, reacts to success/failure | ✅ |
 | **Case assistant**: chat that answers only from the completed case, with citations and out-of-scope refusal | ✅ |
+| **Framework guides**: an "i" on every framework opens a full guide — what it is, where it applies, how it works, a plain-words explanation, worked examples, illustrative charts, key metrics and pitfalls | ✅ |
 | Knowledge base resource links (shared with the AI agents as titles + notes), collapsible sidebar, name-first account menu | ✅ |
 | Brand: logo upload, heading/body fonts, tagline, colour presets, live cover preview — applied to all exports | ✅ |
 | File upload & data analysis, logo/template uploads, RAG, SSO, collaboration invites | Roadmap (see below) |

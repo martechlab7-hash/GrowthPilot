@@ -1,5 +1,6 @@
 import { FRAMEWORKS } from "@/knowledge/frameworks";
 import { Badge, Card, CardBody, PageHeader } from "@/components/ui";
+import { FrameworkInfoButton } from "@/components/frameworks/FrameworkGuide";
 
 const STAGES = [
   ["B", "Business Objective", "What business outcome are we trying to achieve?"],
@@ -25,12 +26,13 @@ export default function FrameworksPage() {
         </div>
       </section>
       <section>
-        <h2 className="mb-3 font-semibold">Diagnostic framework library</h2>
+        <h2 className="font-semibold">Diagnostic framework library</h2>
+        <p className="mb-3 text-sm text-muted">Tap the <span className="font-semibold text-brand-600">i</span> on any framework for the full guide: what it is, where it applies, how it works, examples and charts.</p>
         <div className="grid gap-4 md:grid-cols-2">
           {FRAMEWORKS.map((f) => (
             <Card key={f.id}>
               <CardBody className="space-y-2 text-sm">
-                <div className="flex items-center justify-between"><span className="font-semibold">{f.name}</span><Badge>{f.category}</Badge></div>
+                <div className="flex items-start justify-between gap-2"><span className="font-semibold">{f.name}</span><div className="flex shrink-0 items-center gap-2"><Badge>{f.category}</Badge><FrameworkInfoButton id={f.id} /></div></div>
                 <p className="text-muted">{f.description}</p>
                 <p><span className="font-medium">Answers: </span>{f.answers}</p>
                 <p><span className="font-medium">Needs: </span>{f.requiredData.join(", ")}</p>
