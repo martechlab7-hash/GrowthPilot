@@ -25,6 +25,9 @@ const today = () => new Date().toISOString().slice(0, 10);
 export async function recordUsage(u: UsageRecord) {
   const store = getStore();
   await store.collection<UsageRow>("ai_usage").set({ id: `use_${crypto.randomUUID()}`, ...u });
+  // Only answered requests count toward the plan's daily allowance: a rejected
+  // or timed-out attempt (quota, bad key, outage) produced nothing for the user.
+  if (!u.success) return;
   const day = u.createdAt.slice(0, 10);
   const id = `${u.organizationId}_${day}`;
   await store.collection<Counter>("usage_counters").transact(id, (cur) => ({
@@ -37,8 +40,16 @@ export async function recordUsage(u: UsageRecord) {
 
 export async function assertAiQuota(orgId: string, plan: Plan) {
   const counter = await getStore().collection<Counter>("usage_counters").get(`${orgId}_${today()}`);
-  if ((counter?.requests ?? 0) >= PLAN_LIMITS[plan].aiRequestsPerDay) {
-    throw new HttpError(429, `Daily AI request limit for the ${plan} plan reached. It resets at 00:00 UTC.`, "AI_QUOTA");
+  const limit = PLAN_LIMITS[plan].aiRequestsPerDay;
+  if ((counter?.requests ?? 0) >= limit) {
+    const midnight = new Date();
+    midnight.setUTCHours(24, 0, 0, 0);
+    const hours = Math.max(1, Math.ceil((midnight.getTime() - Date.now()) / 3_600_000));
+    throw new HttpError(
+      429,
+      `Your workspace has used all ${limit} AI requests included in the ${plan} plan today. The allowance resets at 00:00 UTC (in about ${hours} hour${hours === 1 ? "" : "s"}). See Settings → AI usage for what used them. Your case is saved.`,
+      "AI_QUOTA",
+    );
   }
 }
 

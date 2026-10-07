@@ -60,6 +60,8 @@ export class AIProviderError extends Error {
     readonly provider: ProviderKind,
     readonly status: number | undefined,
     readonly retryable: boolean,
+    /** Why it failed, when known: lets the gateway rest a provider that cannot succeed soon. */
+    readonly reason?: "quota" | "auth" | "model" | "timeout" | "rate_limit",
   ) {
     super(message);
     this.name = "AIProviderError";
@@ -131,4 +133,5 @@ export type AIEvent =
   | { type: "response"; provider: string; model: string; latencyMs: number; inputTokens: number; outputTokens: number }
   | { type: "repair"; provider: string; model: string; reason: string }
   | { type: "error"; provider: string; model: string; message: string; willRetry: boolean }
-  | { type: "fallback"; from: string; to: string };
+  | { type: "fallback"; from: string; to: string }
+  | { type: "skipped"; provider: string; model: string; reason: string; minutes: number };

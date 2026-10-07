@@ -64,3 +64,27 @@ describe("AIGateway", () => {
     await expect(new AIGateway({ providers: [] }).generateStructured(req)).rejects.toThrow(/No AI provider/);
   });
 });
+
+describe("provider rest after lasting failures", () => {
+  it("skips a provider whose quota ran out for the next calls, but still uses it when alone", async () => {
+    const { clearProviderRest } = await import("./gateway");
+    const { classifyHttpError } = await import("./providers/http");
+    clearProviderRest();
+    const gemini = adapter([classifyHttpError("gemini", 429, "You exceeded your current quota, please check your plan and billing details.")]);
+    const backup = adapter(['{"answer": 1}']);
+    const providers = [provider("gem", "gemini"), provider("or", "openrouter")];
+    const g = new AIGateway({ providers, adapterFor: (k) => (k === "gemini" ? gemini : backup), backoffMs: 1 });
+    const events: string[] = [];
+    await g.generateStructured({ ...req, onEvent: (e) => events.push(e.type) });
+    // Quota exhaustion is not retried.
+    expect(gemini.calls).toBe(1);
+    await g.generateStructured({ ...req, onEvent: (e) => events.push(e.type) });
+    expect(gemini.calls).toBe(1);
+    expect(events).toContain("skipped");
+    // Alone, a resting provider is still tried rather than failing without an attempt.
+    const solo = new AIGateway({ providers: [provider("gem", "gemini")], adapterFor: () => gemini, backoffMs: 1 });
+    await expect(solo.generateStructured(req)).rejects.toThrow(AIUnavailableError);
+    expect(gemini.calls).toBe(2);
+    clearProviderRest();
+  });
+});
