@@ -13,6 +13,8 @@ export interface InterviewView {
   readiness: Readiness;
   consultantNote: string;
   progress?: { answered: number; toReady: number; optional: number; total: number };
+  tailoring?: "pending" | "ready" | "failed";
+  focus?: string;
 }
 type WithInterview = CaseView & { interview?: InterviewView };
 

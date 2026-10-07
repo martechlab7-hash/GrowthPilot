@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Bot, CheckCircle2, ChevronDown, CornerDownLeft, HelpCircle, PenLine, Sparkles, User } from "lucide-react";
+import { Bot, CheckCircle2, ChevronDown, CornerDownLeft, HelpCircle, Loader2, PenLine, Sparkles, Target, User } from "lucide-react";
 import type { FieldValue, ScoredQuestion } from "@/domain/types";
 import { Badge, Button, Card, CardBody, CardHeader, Chip, Input, Spinner, Textarea } from "@/components/ui";
 import { Owl } from "@/components/mascot";
@@ -28,6 +28,19 @@ export function Interview({ view, ctl, canContribute, canManage, go }: CaseTabPr
     ? coachLine({ name: name === "there" ? "" : name, answered: progress.answered, remaining: ready ? progress.optional : progress.toReady, ready, critical: !!current?.critical, category: current?.category, last })
     : null;
 
+  // While the Interview Planner tailors questions in the background, refresh quietly.
+  const tailoring = iv?.tailoring === "pending";
+  const polls = useRef(0);
+  const reload = ctl.reload;
+  useEffect(() => {
+    if (!tailoring) return;
+    const t = setInterval(() => {
+      if (++polls.current > 40) return clearInterval(t);
+      void reload();
+    }, 3000);
+    return () => clearInterval(t);
+  }, [tailoring, reload]);
+
   const submit: Submit = async (value, unknown, note, other) => {
     const ok = await ctl.run(`Saving ${current!.id}`, "/answer", {
       body: { answers: [{ questionId: current!.id, ...(unknown ? { unknown: true } : value !== undefined ? { value } : {}), ...(other ? { other } : {}), ...(note ? { note } : {}) }] },
@@ -46,6 +59,11 @@ export function Interview({ view, ctl, canContribute, canManage, go }: CaseTabPr
               <div key={coach.headline} className="min-w-0 flex-1 animate-fade-in">
                 <p className="font-semibold tracking-tight">{coach.headline}</p>
                 <p className="text-sm text-muted">{coach.detail}</p>
+                {tailoring ? (
+                  <p className="mt-1.5 flex items-center gap-1.5 text-xs font-medium text-brand-600"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Tailoring the questions to your case…</p>
+                ) : iv?.focus && progress.answered < 3 ? (
+                  <p className="mt-1.5 flex items-start gap-1.5 text-xs font-medium text-brand-700"><Target className="mt-px h-3.5 w-3.5 shrink-0" /> {iv.focus}</p>
+                ) : null}
               </div>
             </div>
             {(progress.total > 0 || ready) && (
@@ -178,8 +196,9 @@ function Conversation({ transcript }: { transcript: CaseTabProps["view"]["case"]
 }
 
 function QuestionCard({ q, number, disabled, busy, onSubmit }: { q: ScoredQuestion; number: number; disabled: boolean; busy: boolean; onSubmit: Submit }) {
-  const [value, setValue] = useState<string>("");
-  const [multi, setMulti] = useState<string[]>([]);
+  // Inferred answers arrive pre-selected so the user only has to confirm them.
+  const [value, setValue] = useState<string>(() => (typeof q.suggested === "string" ? q.suggested : ""));
+  const [multi, setMulti] = useState<string[]>(() => (Array.isArray(q.suggested) ? q.suggested.map(String) : []));
   const [note, setNote] = useState("");
   const [otherOpen, setOtherOpen] = useState(false);
   const [other, setOther] = useState("");

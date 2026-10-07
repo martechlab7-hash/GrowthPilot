@@ -40,6 +40,18 @@ TASK: You are the Interview Agent. Propose at most 3 adaptive follow-up question
 - If nothing material is missing, return an empty followUps array.
 ${GUARDRAILS}`;
 
+export const PLANNER_SYSTEM = `${PERSONA}
+TASK: You are the Interview Planner. Before the interview starts, tailor the standard QUESTIONS to THIS client's problem so every question feels specific, logical and worth answering.
+- metric: the KPI or outcome the client is worried about, in their own words (2–5 words, lower case, e.g. "repeat bookings", "app activation rate").
+- focus: one plain sentence telling the client what the interview will establish (e.g. "We'll pin down which passengers stopped rebooking after the Sightseeing launch, and why.").
+- For EVERY question id provided, return relevant and, when relevant, a rewritten prompt:
+  * Rewrite the prompt in the client's context: use their product, market, customer and metric names from the PROBLEM STATEMENT and CASE CONTEXT. Keep it one short, natural question (max ~25 words).
+  * Keep the meaning identical: the listed answer OPTIONS must still answer your rewritten question exactly. Never ask for something different.
+  * why: optional, one short sentence on why it matters for THIS case.
+- Mark relevant=false only when a question clearly does not apply to this problem, or the PROBLEM STATEMENT already answers it. Be conservative with questions marked critical: keep them unless clearly inapplicable.
+- Do not invent facts. Do not add new questions.
+${GUARDRAILS}`;
+
 export const DIAGNOSTIC_SYSTEM = `${PERSONA}
 TASK: You are the Diagnostic Agent. Apply the SELECTED FRAMEWORKS to diagnose what is actually happening.
 - Identify symptoms, trends, affected segments, funnel/lifecycle leakage, and operational, data and technology gaps.

@@ -19,6 +19,11 @@ export async function postJson(
       cache: "no-store",
     });
   } catch (err) {
+    // A timeout means the model is slow right now; retrying the same model rarely helps,
+    // so it is not retried and the gateway moves straight to the fallback provider.
+    if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
+      throw new AIProviderError(`${provider} did not respond within ${Math.round(timeoutMs / 1000)}s (timed out)`, provider, undefined, false);
+    }
     const msg = err instanceof Error ? err.message : String(err);
     throw new AIProviderError(`Network error contacting ${provider}: ${msg}`, provider, undefined, true);
   }

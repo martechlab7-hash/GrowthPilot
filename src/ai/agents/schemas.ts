@@ -53,6 +53,19 @@ export const InterviewOutput = z.object({
     .max(3),
 });
 
+export const InterviewPlanOutput = z.object({
+  metric: z.string().max(80),
+  focus: z.string().max(400),
+  questions: z.array(
+    z.object({
+      id: z.string(),
+      relevant: z.boolean(),
+      prompt: z.string().max(300).optional(),
+      why: z.string().max(400).optional(),
+    }),
+  ),
+});
+
 export const DiagnosticOutput = z.object({
   summary: z.string(),
   findings: z.array(

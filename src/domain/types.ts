@@ -156,7 +156,24 @@ export type Question = z.infer<typeof QuestionSchema>;
 export const ScoredQuestionSchema = QuestionSchema.extend({
   priority: z.number(),
   uncertainty: z.number(),
+  /** A value Pilot inferred and wants confirmed (pre-selected in the UI). */
+  suggested: FieldValueSchema.optional(),
 });
+
+/**
+ * Per-case interview plan written by the Interview Planner agent: which bank
+ * questions matter for THIS problem, and how to phrase them in its context.
+ */
+export const QuestionPlanSchema = z.object({
+  status: z.enum(["pending", "ready", "failed"]),
+  /** What the interview is really about, in one sentence. */
+  focus: z.string().max(400).optional(),
+  /** The metric under investigation, in the client's words (e.g. "repeat bookings"). */
+  metric: z.string().max(80).optional(),
+  items: z.record(z.string(), z.object({ prompt: z.string().max(300).optional(), why: z.string().max(400).optional(), skip: z.boolean().optional() })),
+  updatedAt: z.string(),
+});
+export type QuestionPlan = z.infer<typeof QuestionPlanSchema>;
 export type ScoredQuestion = z.infer<typeof ScoredQuestionSchema>;
 
 export const TranscriptEntrySchema = z.object({
@@ -503,6 +520,7 @@ export const CaseSchema = z.object({
   transcript: z.array(TranscriptEntrySchema),
   askedQuestionIds: z.array(z.string()),
   adaptiveQuestions: z.array(QuestionSchema),
+  questionPlan: QuestionPlanSchema.optional(),
   selectedFrameworks: z.array(z.string()),
   diagnosis: DiagnosisSchema.optional(),
   hypotheses: z.array(HypothesisSchema),

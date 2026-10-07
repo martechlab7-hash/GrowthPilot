@@ -31,6 +31,8 @@ import { getIndustry, industryIdFromName } from "@/knowledge/industries";
 import type { AuthContext } from "../auth";
 import { badRequest, HttpError, notFound } from "../errors";
 import { log } from "../logger";
+import { inBackground } from "../background";
+import { can } from "../permissions";
 import { getStore } from "../store";
 import { audit } from "./org";
 import { gatewayFor } from "./providers";
@@ -311,21 +313,46 @@ export async function createCase(auth: AuthContext, input: z.infer<typeof Create
     analysisStale: false,
   };
   c.progress = overallProgress(c);
+  const gateway = await gatewayFor(auth.orgId);
+  // Tailoring and fact extraction run after the response, so the case opens instantly.
+  if (gateway.hasProviders) c.questionPlan = { status: "pending", items: {}, updatedAt: t };
   await cases().set(c);
   await audit(auth.orgId, auth.uid, "case.create", c.id);
 
-  // Best-effort AI extraction of facts already stated in the problem statement.
-  try {
-    const gateway = await gatewayFor(auth.orgId);
-    if (gateway.hasProviders) {
-      await assertAiQuota(auth.orgId, plan);
-      const { facts } = await agents.extractFacts({ gateway, call: { organizationId: auth.orgId, userId: by, caseId: c.id } }, input.problemStatement);
-      if (facts.length) return applyExtracted(auth, c.id, facts, "problem statement");
-    }
-  } catch (err) {
-    log("warn", "case.extraction_skipped", { caseId: c.id, message: (err as Error).message });
+  if (gateway.hasProviders) {
+    await inBackground("case.enrich", () => enrichCase(auth, c.id, input.problemStatement));
+    if (process.env.VITEST) return (await cases().get(c.id)) ?? c;
   }
   return c;
+}
+
+/**
+ * Background enrichment for a new case: extract facts stated in the problem
+ * statement, then let the Interview Planner tailor the questions to it.
+ */
+async function enrichCase(auth: AuthContext, caseId: string, statement: string) {
+  const plan = await orgPlan(auth.orgId);
+  try {
+    await assertAiQuota(auth.orgId, plan);
+    const gateway = await gatewayFor(auth.orgId);
+    const { facts } = await agents.extractFacts({ gateway, call: { organizationId: auth.orgId, userId: auth.uid, caseId } }, statement);
+    if (facts.length) await applyExtracted(auth, caseId, facts, "problem statement");
+  } catch (err) {
+    log("warn", "case.extraction_skipped", { caseId, message: (err as Error).message });
+  }
+  await tailorInterview(auth, caseId);
+}
+
+/** Run the Interview Planner once for a case; failures fall back to standard wording. */
+async function tailorInterview(auth: AuthContext, caseId: string) {
+  const c = await loadCase(auth, caseId);
+  try {
+    const result = await withAi(auth, c, "plan_interview", (deps) => agents.planInterview(deps, c), { flagPending: false });
+    await mutate(auth, caseId, (cur) => ({ ...cur, questionPlan: { status: "ready", metric: result.metric, focus: result.focus, items: result.items, updatedAt: now() } }));
+  } catch (err) {
+    log("warn", "case.tailoring_failed", { caseId, message: (err as Error).message });
+    await mutate(auth, caseId, (cur) => ({ ...cur, questionPlan: { status: "failed", items: {}, updatedAt: now() } }));
+  }
 }
 
 async function applyExtracted(auth: AuthContext, caseId: string, facts: agents.ExtractedFact[], from: string) {
@@ -484,19 +511,19 @@ export async function answerQuestions(auth: AuthContext, caseId: string, input: 
     return next;
   });
 
-  // Free-text answers may contain additional facts; extract them best-effort.
-  const longText = resolved.filter((r) => r.q.input === "longtext" && typeof r.value === "string").map((r) => r.value as string);
-  if (longText.length) {
-    try {
+  // Free-text answers may contain additional facts; extract them after responding.
+  const freeText = resolved
+    .filter((r) => (r.q.input === "longtext" || r.a.other) && r.value !== undefined)
+    .map((r) => (Array.isArray(r.value) ? r.value.join("; ") : String(r.value)));
+  if (freeText.length) {
+    await inBackground("answer.extract", async () => {
       const gateway = await gatewayFor(auth.orgId);
-      if (gateway.hasProviders) {
-        await assertAiQuota(auth.orgId, await orgPlan(auth.orgId));
-        const { facts } = await agents.extractFacts({ gateway, call: { organizationId: auth.orgId, userId: auth.uid, caseId } }, longText.join("\n\n"));
-        if (facts.length) return interviewState(await applyExtracted(auth, caseId, facts, "answer"));
-      }
-    } catch (err) {
-      log("warn", "answer.extraction_skipped", { caseId, message: (err as Error).message });
-    }
+      if (!gateway.hasProviders) return;
+      await assertAiQuota(auth.orgId, await orgPlan(auth.orgId));
+      const { facts } = await agents.extractFacts({ gateway, call: { organizationId: auth.orgId, userId: auth.uid, caseId } }, freeText.join("\n\n"));
+      if (facts.length) await applyExtracted(auth, caseId, facts, "answer");
+    });
+    if (process.env.VITEST) return interviewState(await loadCase(auth, caseId));
   }
   return interviewState(updated);
 }
@@ -514,6 +541,8 @@ export function interviewState(c: Case, consultantNote?: string) {
       progress: { answered, toReady, optional, total: answered + toReady },
       sufficiency: sufficiencyStatements(c),
       readiness: r,
+      tailoring: c.questionPlan?.status,
+      focus: c.questionPlan?.focus,
       consultantNote:
         consultantNote ??
         (r.ready
@@ -526,7 +555,16 @@ export function interviewState(c: Case, consultantNote?: string) {
 }
 
 export async function getInterview(auth: AuthContext, caseId: string) {
-  return interviewState(await loadCase(auth, caseId));
+  let c = await loadCase(auth, caseId);
+  // Cases created before tailoring existed get a plan the first time the interview opens.
+  if (!c.questionPlan && !c.diagnosis && auth.profile && can(auth.profile.role, "case.contribute")) {
+    const gateway = await gatewayFor(auth.orgId);
+    if (gateway.hasProviders) {
+      c = await mutate(auth, caseId, (cur) => (cur.questionPlan ? cur : { ...cur, questionPlan: { status: "pending", items: {}, updatedAt: now() } }));
+      await inBackground("case.tailor", () => tailorInterview(auth, caseId));
+    }
+  }
+  return interviewState(c);
 }
 
 /** Ask the Interview Agent for adaptive follow-ups beyond the question bank. */

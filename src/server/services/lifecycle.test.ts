@@ -17,6 +17,11 @@ function fixture(req: ChatRequest): unknown {
   prompts.push(prompt);
   const ev = [{ statement: "Repeat bookings fell", kind: "fact", sourceKeys: ["performance.metric_current"] }];
   if (sys.includes("Extract structured facts")) return { facts: [{ key: "business.geography", value: "India", confidence: "high" }, { key: "business.industry", value: "Not an option", confidence: "high" }], problemTypes: ["retention"] };
+  if (sys.includes("Interview Planner")) return { metric: "repeat bookings", focus: "We'll find which passengers stopped rebooking, and why.", questions: [
+    { id: "perf-onset", relevant: true, prompt: "When did repeat bookings start to slide, and was the drop sudden or gradual?" },
+    { id: "biz-geo", relevant: false },
+    { id: "made-up-id", relevant: true, prompt: "Ignored because the id is unknown" },
+  ] };
   if (sys.includes("Interview Agent")) return { consultantNote: "Need route data.", followUps: [{ slug: "route_mix", prompt: "Which routes declined?", why: "Isolates network effects", stage: "diagnosis", category: "PERFORMANCE", input: "longtext", businessImpact: 4, diagnosticValue: 5, decisionRelevance: 4 }] };
   if (sys.includes("Diagnostic Agent")) return { summary: "Decline concentrated in frequent flyers.", findings: [{ finding: "Frequent flyers book less", stage: "customer", evidence: ev, confidence: 0.7, impact: "high" }], confidence: 0.7, highConfidence: ["Repeat rate fell"], mediumConfidence: [], lowConfidence: ["Competitor pricing"], dataGaps: [{ dataset: "Competitor fares", whyNeeded: "Price effect", expectedInsight: "Elasticity", priority: "high", alternativeProxy: "Fare scraping" }], assumptions: [{ statement: "Fares unchanged", impact: "high", confidence: "low", validate: true }] };
   if (sys.includes("Hypothesis Agent")) return { hypotheses: [
@@ -91,6 +96,19 @@ describe("consulting lifecycle", () => {
     expect(created.context.fields["business.industry"]!.value).toBe("Airlines");
     // PII never reaches the provider.
     expect(prompts.join("\n")).not.toContain("ops@airline.com");
+
+    // The Interview Planner tailors wording to the case and drops what does not apply.
+    expect(created.questionPlan?.status).toBe("ready");
+    expect(created.questionPlan?.metric).toBe("repeat bookings");
+    const tailored = await svc.getInterview(auth, created.id);
+    const all = (await import("@/engine/interview")).nextQuestions(created, 200);
+    expect(all.find((q) => q.id === "perf-onset")?.prompt).toBe("When did repeat bookings start to slide, and was the drop sudden or gradual?");
+    expect(all.some((q) => q.id === "biz-geo")).toBe(false);
+    expect(all.find((q) => q.id === "cust-declining")?.prompt).toBe("Which passenger groups are declining the most?");
+    // The inferred industry is offered for confirmation rather than asked cold.
+    const industryQ = all.find((q) => q.id === "biz-industry");
+    expect(industryQ?.suggested).toBe("Airlines");
+    expect(tailored.interview.focus).toContain("passengers");
 
     // Diagnosis is gated on discovery readiness.
     await expect(svc.diagnose(auth, created.id, false)).rejects.toMatchObject({ code: "NOT_READY" });

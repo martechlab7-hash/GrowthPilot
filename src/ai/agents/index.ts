@@ -34,6 +34,7 @@ export interface Progress {
 
 const AGENT_LABELS: Record<string, string> = {
   extraction: "Fact extraction",
+  planner: "Interview Planner",
   interview: "Interview Agent",
   diagnostic: "Diagnostic Agent",
   hypothesis: "Hypothesis Agent",
@@ -65,6 +66,7 @@ async function runAgent<T extends z.ZodType>(
   system: string,
   sections: Record<string, string>,
   schema: T,
+  maxTokens?: number,
 ): Promise<z.infer<T>> {
   const name = AGENT_LABELS[agent] ?? agent;
   if (deps.references && REFERENCE_AGENTS.has(agent)) {
@@ -79,7 +81,7 @@ async function runAgent<T extends z.ZodType>(
     `${Object.keys(sections).join(", ")} · ~${Math.round(prompt.length / 4).toLocaleString("en")} tokens · ${vault.tokens.size} personal data item(s) masked · ${tier} model`,
   );
   const { data } = await deps.gateway.generateStructured({
-    agent, tier, system, prompt, schema, context: deps.call,
+    agent, tier, system, prompt, schema, context: deps.call, ...(maxTokens ? { maxTokens } : {}),
     onEvent: (e) => deps.progress?.ai(e),
   });
   deps.progress?.step(`${name}: output validated`, "Structured JSON matched the expected schema");
@@ -121,6 +123,44 @@ export async function extractFacts(
     return typeof f.value === "string" && f.value.trim().length > 0;
   });
   return { facts, problemTypes: out.problemTypes };
+}
+
+export interface InterviewPlan {
+  metric: string;
+  focus: string;
+  items: Record<string, { prompt?: string; why?: string; skip?: boolean }>;
+}
+
+/** Interview Planner: decide which bank questions matter for this case and phrase them in its context. */
+export async function planInterview(deps: AgentDeps, c: Case): Promise<InterviewPlan> {
+  const qs = candidateQuestions(c).filter((q) => q.origin !== "ai");
+  const list = qs.map((q) => ({
+    id: q.id,
+    prompt: q.prompt,
+    input: q.input,
+    ...(q.options ? { options: q.options.slice(0, 10) } : {}),
+    ...(q.critical ? { critical: true } : {}),
+  }));
+  const out = await runAgent(deps, "planner", "fast", P.PLANNER_SYSTEM, {
+    "PROBLEM STATEMENT": c.problemStatement,
+    "CASE CONTEXT": serializeContext(buildAgentContext(c)),
+    QUESTIONS: JSON.stringify(list),
+  }, S.InterviewPlanOutput, 6_000);
+  const known = new Set(qs.map((q) => q.id));
+  const items: InterviewPlan["items"] = {};
+  for (const r of out.questions) {
+    if (!known.has(r.id)) continue;
+    const prompt = r.prompt?.trim();
+    items[r.id] = {
+      ...(prompt && prompt.length >= 8 ? { prompt } : {}),
+      ...(r.why?.trim() ? { why: r.why.trim() } : {}),
+      ...(r.relevant ? {} : { skip: true }),
+    };
+  }
+  // Guard against an over-eager planner: never drop more than half the interview.
+  const skipped = Object.entries(items).filter(([, v]) => v.skip);
+  if (skipped.length > qs.length / 2) for (const [, v] of skipped) delete v.skip;
+  return { metric: out.metric.trim().toLowerCase().slice(0, 80), focus: out.focus.trim().slice(0, 400), items };
 }
 
 /** Interview Agent: adaptive questions beyond the bank. */
