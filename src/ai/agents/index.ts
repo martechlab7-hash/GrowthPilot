@@ -17,7 +17,7 @@ import type {
 } from "@/domain/types";
 import { prioritize } from "@/engine/prioritization";
 import { assessMaturity } from "@/engine/maturity";
-import { candidateQuestions } from "@/engine/interview";
+import { candidateQuestions, nextQuestions } from "@/engine/interview";
 import { createVault, maskPii, restorePii, type PiiVault } from "@/engine/pii";
 import { QUESTION_BANK } from "@/knowledge/questionBank";
 import { getFramework } from "@/knowledge/frameworks";
@@ -186,7 +186,8 @@ export interface InterviewPlan {
 
 /** Interview Planner: decide which bank questions matter for this case and phrase them in its context. */
 export async function planInterview(deps: AgentDeps, c: Case): Promise<InterviewPlan> {
-  const qs = candidateQuestions(c).filter((q) => q.origin !== "ai");
+  // Phrased for this case's goal and sales channel, so rewording starts from the right framing.
+  const qs = nextQuestions(c, 500).filter((q) => q.origin !== "ai");
   const list = qs.map((q) => ({
     id: q.id,
     prompt: q.prompt,

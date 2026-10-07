@@ -1,8 +1,10 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { useMemo, useState } from "react";
+import { ChevronDown, Globe, Layers, Store, TrendingDown, TrendingUp, Undo2, type LucideIcon } from "lucide-react";
+import { detectChannel, detectGoal, type CaseGoal, type SalesChannel } from "@/engine/caseProfile";
+import { cn } from "@/lib/cn";
 import type { Case } from "@/domain/types";
 import { INDUSTRY_OPTIONS } from "@/knowledge/industries";
 import { Button, Card, CardBody, Chip, ErrorNote, Input, Label, PageHeader, Select, Textarea } from "@/components/ui";
@@ -10,6 +12,17 @@ import { apiFetch } from "@/lib/client/api";
 
 const MODELS = ["B2B", "B2C", "B2B2C", "Marketplace", "Subscription", "Transaction"];
 const OBJECTIVES = ["Increase revenue", "Increase retention", "Reduce churn", "Improve conversion", "Increase customer lifetime value", "Reduce CAC", "Increase engagement"];
+const GOALS: { id: CaseGoal; title: string; hint: string; icon: LucideIcon }[] = [
+  { id: "decline", title: "Fix a drop", hint: "Something fell from X to Y", icon: TrendingDown },
+  { id: "growth", title: "Grow", hint: "Hit a target, e.g. +5% revenue", icon: TrendingUp },
+  { id: "both", title: "Recover, then grow", hint: "Get back and go beyond", icon: Undo2 },
+];
+const CHANNELS: { id: SalesChannel; title: string; hint: string; icon: LucideIcon }[] = [
+  { id: "offline", title: "Offline", hint: "Stores, dealers, field sales", icon: Store },
+  { id: "online", title: "Online", hint: "Website, app, marketplaces", icon: Globe },
+  { id: "omni", title: "Both", hint: "Online and offline", icon: Layers },
+];
+
 const CURRENCIES = ["USD", "EUR", "GBP", "INR", "AED", "SGD", "AUD", "CAD", "JPY"];
 
 export default function NewCasePage() {
@@ -25,7 +38,11 @@ export default function NewCasePage() {
   const [revenueModel, setRevenueModel] = useState("");
   const [tools, setTools] = useState("");
   const [currency, setCurrency] = useState("USD");
+  const [goal, setGoal] = useState<CaseGoal | null>(null);
+  const [channel, setChannel] = useState<SalesChannel | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Until the user picks, show what the description suggests; the interview confirms it.
+  const detected = useMemo(() => ({ goal: detectGoal(`${name}. ${problem}`), channel: detectChannel(`${name}. ${problem}`) }), [name, problem]);
   const [busy, setBusy] = useState(false);
 
   const toggle = (list: string[], set: (v: string[]) => void, v: string) => set(list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
@@ -41,6 +58,7 @@ export default function NewCasePage() {
           ...(industry && { industry }), ...(geography && { geography }), ...(companySize && { companySize }),
           ...(models.length && { businessModel: models }), ...(objectives.length && { objective: objectives }),
           ...(revenueModel && { revenueModel }), ...(tools && { existingTools: tools }),
+          ...(goal && { goal }), ...(channel && { salesChannel: channel }),
         },
       });
       router.push(`/cases/${res.case.id}?tab=interview`);
@@ -66,6 +84,21 @@ export default function NewCasePage() {
                 placeholder="Describe the problem you are trying to solve. e.g. Our airline has seen a decline in repeat bookings over the last 12 months. We want to understand why and identify ways to improve customer retention." />
               <p className="mt-1 text-xs text-muted">Avoid personal customer data. Any emails or phone numbers are masked before reaching an AI provider.</p>
             </div>
+
+            <ChoiceRow
+              label="What kind of case is this?"
+              options={GOALS}
+              value={goal}
+              detected={detected.goal}
+              onChange={setGoal}
+            />
+            <ChoiceRow
+              label="Where do your sales happen?"
+              options={CHANNELS}
+              value={channel}
+              detected={detected.channel}
+              onChange={setChannel}
+            />
 
             <button type="button" onClick={() => setMore(!more)} className="flex items-center gap-1 text-sm font-medium text-brand-600">
               <ChevronDown className={`h-4 w-4 transition ${more ? "rotate-180" : ""}`} /> Optional information
@@ -126,5 +159,42 @@ export default function NewCasePage() {
         </CardBody>
       </Card>
     </div>
+  );
+}
+
+function ChoiceRow<T extends string>({ label, options, value, detected, onChange }: { label: string; options: { id: T; title: string; hint: string; icon: LucideIcon }[]; value: T | null; detected: T | undefined; onChange: (v: T | null) => void }) {
+  const shown = value ?? detected ?? null;
+  return (
+    <fieldset>
+      <legend className="mb-1.5 flex flex-wrap items-baseline gap-x-2 text-sm font-medium">
+        {label}
+        {!value && detected && <span className="text-xs font-normal text-muted">Suggested from your description. I&apos;ll confirm it in the interview.</span>}
+      </legend>
+      <div className="grid gap-2 sm:grid-cols-3">
+        {options.map((o) => {
+          const active = shown === o.id;
+          const Icon = o.icon;
+          return (
+            <button
+              key={o.id}
+              type="button"
+              aria-pressed={value === o.id}
+              onClick={() => onChange(value === o.id ? null : o.id)}
+              className={cn(
+                "flex items-start gap-3 rounded-xl border px-3 py-2.5 text-left transition",
+                active ? "border-brand-500 bg-brand-50/70 ring-2 ring-brand-500/15" : "border-line bg-white hover:border-line-strong",
+                active && !value && "border-dashed",
+              )}
+            >
+              <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", active ? "text-brand-600" : "text-subtle")} />
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold">{o.title}</span>
+                <span className="block text-xs text-muted">{o.hint}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </fieldset>
   );
 }
