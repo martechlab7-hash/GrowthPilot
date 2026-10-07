@@ -12,6 +12,8 @@ export type Block =
   | { type: "paragraph"; text: string }
   | { type: "bullets"; items: string[] }
   | { type: "table"; headers: string[]; rows: string[][] }
+  /** A journey drawn as a flowchart: ordered steps, decisions list their branches. */
+  | { type: "flow"; steps: { type: string; label: string; branches?: { label: string; target?: string }[] }[] }
   | { type: "callout"; label: string; text: string };
 
 export interface ReportSection {
@@ -131,7 +133,7 @@ export function buildReportModel(c: Case, brand: BrandProfile): ReportModel {
         {
           type: "table",
           headers: ["Finding", "Stage", "Impact", "Confidence", "Evidence"],
-          rows: d.findings.map((f) => [f.finding, STAGE_LABELS[f.stage], cap(f.impact), pct(f.confidence), f.evidence.map((e) => `[${e.kind}] ${e.statement}`).join("\n")]),
+          rows: d.findings.map((f) => [f.finding, STAGE_LABELS[f.stage], cap(f.impact), pct(f.confidence), f.evidence.map((e) => `${cap(e.kind)}: ${e.statement}`).join("\n")]),
         },
         ...(d.highConfidence.length ? [{ type: "callout" as const, label: "High confidence", text: d.highConfidence.join("; ") }] : []),
         ...(d.mediumConfidence.length ? [{ type: "callout" as const, label: "Medium confidence", text: d.mediumConfidence.join("; ") }] : []),
@@ -198,7 +200,7 @@ export function buildReportModel(c: Case, brand: BrandProfile): ReportModel {
           {
             type: "table",
             headers: ["Priority", "Recommendation", "Why", "Target customer", "Expected impact", "Effort", "Time to value"],
-            rows: c.recommendations.map((x) => [`${x.priority} (${x.priorityScore})`, x.title, x.why, x.targetCustomer, x.expectedImpact, `${cap(x.complexity)} complexity / ${cap(x.cost)} cost`, `${x.timeToValueWeeks} weeks`]),
+            rows: c.recommendations.map((x) => [`${x.priority} · score ${x.priorityScore}`, x.title, x.why, x.targetCustomer, x.expectedImpact, `${cap(x.complexity)} complexity / ${cap(x.cost)} cost`, `${x.timeToValueWeeks} weeks`]),
           },
           ...c.recommendations.slice(0, 6).map((x) => ({
             type: "callout" as const,
@@ -231,10 +233,20 @@ export function buildReportModel(c: Case, brand: BrandProfile): ReportModel {
     id: "activation",
     title: "11. Activation Strategy",
     headline: "Activation journeys",
-    blocks: c.journeys.flatMap((j) => [
-      { type: "callout" as const, label: j.name, text: `Objective: ${j.objective}\nAudience: ${j.audience}\nChannels: ${j.channels.join(", ")}\nControl group: ${j.controlGroup}` },
-      { type: "bullets" as const, items: j.steps.map((s) => `${cap(s.type)}: ${s.label}${s.branches?.length ? ` (${s.branches.map((b) => b.label).join(" / ")})` : ""}`) },
-    ]),
+    blocks: c.journeys.flatMap((j) => {
+      const byId = new Map(j.steps.map((st) => [st.id, st.label]));
+      return [
+        { type: "callout" as const, label: j.name, text: `Objective: ${j.objective}\nAudience: ${j.audience}\nChannels: ${j.channels.join(", ")}\nControl group: ${j.controlGroup}` },
+        {
+          type: "flow" as const,
+          steps: j.steps.map((st) => ({
+            type: st.type,
+            label: st.label,
+            ...(st.branches?.length ? { branches: st.branches.map((b) => ({ label: b.label, ...(byId.get(b.next) ? { target: byId.get(b.next)! } : {}) })) } : {}),
+          })),
+        },
+      ];
+    }),
   });
 
   add({

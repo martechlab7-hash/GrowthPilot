@@ -1,6 +1,7 @@
 "use client";
 
-import { ArrowDown, Route } from "lucide-react";
+import { Flowchart, toFlowSteps } from "@/components/charts/Flowchart";
+import { Route } from "lucide-react";
 import type { ActivationJourney } from "@/domain/types";
 import { Badge, Button, Card, CardBody, CardHeader, EmptyState } from "@/components/ui";
 import type { CaseTabProps } from "./Workspace";
@@ -17,30 +18,8 @@ function PlanEmpty({ view, ctl, canManage, go, what }: CaseTabProps & { what: st
   );
 }
 
-const STEP_TONE: Record<string, "blue" | "neutral" | "amber" | "green" | "violet"> = {
-  trigger: "blue", wait: "neutral", condition: "amber", action: "violet", channel: "green", measure: "neutral",
-};
-
 function JourneyFlow({ j }: { j: ActivationJourney }) {
-  const byId = new Map(j.steps.map((s) => [s.id, s]));
-  return (
-    <ol className="flex flex-col items-start gap-1">
-      {j.steps.map((s, i) => (
-        <li key={s.id} className="w-full max-w-xl">
-          <div className="flex items-center gap-2 rounded-lg border border-line bg-white px-3 py-2 text-sm">
-            <Badge tone={STEP_TONE[s.type]}>{s.type}</Badge>
-            <span>{s.label}</span>
-          </div>
-          {s.branches?.length ? (
-            <div className="ml-6 mt-1 flex flex-wrap gap-2 text-xs text-muted">
-              {s.branches.map((b) => <span key={b.label} className="rounded-full bg-canvas px-2 py-0.5">{b.label} → {byId.get(b.next)?.label ?? b.next}</span>)}
-            </div>
-          ) : null}
-          {i < j.steps.length - 1 && <ArrowDown className="my-1 ml-6 h-3.5 w-3.5 text-slate-300" />}
-        </li>
-      ))}
-    </ol>
-  );
+  return <Flowchart steps={toFlowSteps(j.steps)} />;
 }
 
 export function ActivationView(props: CaseTabProps) {

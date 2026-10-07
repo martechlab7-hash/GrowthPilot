@@ -1,10 +1,11 @@
 import "server-only";
 import {
   AlignmentType, BorderStyle, Document, Footer, Header, HeadingLevel, Packer, PageNumber,
-  ImageRun, Paragraph, ShadingType, Table, TableCell, TableRow, TextRun, WidthType,
+  ImageRun, Paragraph, ShadingType, Table, TableCell, TableRow, TextRun, VerticalAlign, WidthType,
 } from "docx";
 import { fit, logoOf } from "./brandAssets";
 import type { Block, ReportModel } from "./model";
+import { branchLines, flowStyle } from "./flowStyle";
 
 const hex = (c: string) => c.replace("#", "").toUpperCase();
 
@@ -52,7 +53,55 @@ function renderBlock(b: Block, m: ReportModel): (Paragraph | Table)[] {
         }),
         new Paragraph({ text: "" }),
       ];
+    case "flow":
+      return [flowTable(b.steps, font), new Paragraph({ text: "" })];
   }
+}
+
+const NONE = { style: BorderStyle.NONE, size: 0, color: "FFFFFF" };
+const NO_BORDERS = { top: NONE, bottom: NONE, left: NONE, right: NONE };
+
+/** Journey flowchart as a grid: three shaded step boxes per row joined by arrows, a down-arrow between rows. */
+function flowTable(steps: Extract<Block, { type: "flow" }>["steps"], font: string): Table {
+  const PER_ROW = 3;
+  const rows: TableRow[] = [];
+  const arrowCell = (text: string) => new TableCell({
+    borders: NO_BORDERS,
+    width: { size: 6, type: WidthType.PERCENTAGE },
+    verticalAlign: VerticalAlign.CENTER,
+    children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text, color: "94A3B8", size: 28, font })] })],
+  });
+  const emptyCell = (pct: number) => new TableCell({ borders: NO_BORDERS, width: { size: pct, type: WidthType.PERCENTAGE }, children: [new Paragraph("")] });
+  for (let r = 0; r < steps.length; r += PER_ROW) {
+    if (r > 0) {
+      rows.push(new TableRow({ children: [new TableCell({ borders: NO_BORDERS, columnSpan: PER_ROW * 2 - 1, children: [new Paragraph({ alignment: AlignmentType.LEFT, indent: { left: 900 }, children: [new TextRun({ text: "↓", color: "94A3B8", size: 28, font })] })] })] }));
+    }
+    const cells: TableCell[] = [];
+    for (let k = 0; k < PER_ROW; k++) {
+      const st = steps[r + k];
+      if (!st) {
+        cells.push(emptyCell(29));
+        if (k < PER_ROW - 1) cells.push(emptyCell(6));
+        continue;
+      }
+      const style = flowStyle(st.type);
+      const border = { style: BorderStyle.SINGLE, size: 8, color: hex(style.stroke) };
+      cells.push(new TableCell({
+        width: { size: 29, type: WidthType.PERCENTAGE },
+        shading: { type: ShadingType.CLEAR, fill: hex(style.fill), color: "auto" },
+        borders: { top: border, bottom: border, left: border, right: border },
+        margins: { top: 80, bottom: 80, left: 100, right: 100 },
+        children: [
+          new Paragraph({ children: [new TextRun({ text: `${r + k + 1}  ${style.label.toUpperCase()}`, bold: true, color: hex(style.stroke), size: 14, font })] }),
+          new Paragraph({ spacing: { before: 40 }, children: [new TextRun({ text: st.label, bold: true, size: 19, font })] }),
+          ...branchLines(st).map((line) => new Paragraph({ spacing: { before: 40 }, children: [new TextRun({ text: `• ${line}`, color: "92400E", size: 16, font })] })),
+        ],
+      }));
+      if (k < PER_ROW - 1) cells.push(steps[r + k + 1] ? arrowCell("→") : emptyCell(6));
+    }
+    rows.push(new TableRow({ children: cells }));
+  }
+  return new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, borders: { ...NO_BORDERS, insideHorizontal: NONE, insideVertical: NONE }, rows });
 }
 
 export async function renderDocx(m: ReportModel): Promise<Buffer> {

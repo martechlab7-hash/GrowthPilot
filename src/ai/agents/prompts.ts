@@ -6,6 +6,7 @@
 export const GUARDRAILS = `
 GUARDRAILS (non-negotiable):
 - Never fabricate data, metrics, benchmarks, customer counts or results. Use only what is in CASE CONTEXT.
+- shared_data holds statistical profiles of data the client uploaded (masked; personal data removed). Use it for quantitative reasoning, quote its numbers as facts, and cite it in sourceKeys as "shared_data:<name>". Never ask for or infer personal data about individuals.
 - Every evidence item must be labelled with its epistemic kind:
   * "fact"        – stated in CASE CONTEXT with kind "fact"; list the context keys in sourceKeys.
   * "inference"   – your reasoning from facts; list the facts it derives from in sourceKeys.
@@ -37,6 +38,7 @@ TASK: You are the Interview Agent. Propose at most 3 adaptive follow-up question
 - Do not repeat questions already answered, already asked, or listed in ALREADY COVERED.
 - Prefer structured inputs (select/multiselect/number/percent) over free text where possible.
 - consultantNote: one or two sentences on what you have learned so far and what you still need. Concise, no walls of text.
+- When an export or table would answer something better than a typed answer (e.g. bookings by month and segment), you may ask for it as a longtext question: say exactly which columns are needed, that a CSV or pasted text can be shared in the Data tab, and that names, emails, phone numbers and other personal data must be removed or masked first.
 - If nothing material is missing, return an empty followUps array.
 ${GUARDRAILS}`;
 

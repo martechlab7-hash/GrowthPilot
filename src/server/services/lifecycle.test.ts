@@ -23,7 +23,7 @@ function fixture(req: ChatRequest): unknown {
     { id: "made-up-id", relevant: true, prompt: "Ignored because the id is unknown" },
   ] };
   if (sys.includes("Interview Agent")) return { consultantNote: "Need route data.", followUps: [{ slug: "route_mix", prompt: "Which routes declined?", why: "Isolates network effects", stage: "diagnosis", category: "PERFORMANCE", input: "longtext", businessImpact: 4, diagnosticValue: 5, decisionRelevance: 4 }] };
-  if (sys.includes("Diagnostic Agent")) return { summary: "Decline concentrated in frequent flyers.", findings: [{ finding: "Frequent flyers book less", stage: "customer", evidence: ev, confidence: 0.7, impact: "high" }], confidence: 0.7, highConfidence: ["Repeat rate fell"], mediumConfidence: [], lowConfidence: ["Competitor pricing"], dataGaps: [{ dataset: "Competitor fares", whyNeeded: "Price effect", expectedInsight: "Elasticity", priority: "high", alternativeProxy: "Fare scraping" }], assumptions: [{ statement: "Fares unchanged", impact: "high", confidence: "low", validate: true }] };
+  if (sys.includes("Diagnostic Agent")) return { thinking_summary: ["Compared frequent-flyer cohorts before and after March", "Ruled out seasonality: the dip persists year on year"], summary: "Decline concentrated in frequent flyers.", findings: [{ finding: "Frequent flyers book less", stage: "customer", evidence: ev, confidence: 0.7, impact: "high" }], confidence: 0.7, highConfidence: ["Repeat rate fell"], mediumConfidence: [], lowConfidence: ["Competitor pricing"], dataGaps: [{ dataset: "Competitor fares", whyNeeded: "Price effect", expectedInsight: "Elasticity", priority: "high", alternativeProxy: "Fare scraping" }], assumptions: [{ statement: "Fares unchanged", impact: "high", confidence: "low", validate: true }] };
   if (sys.includes("Hypothesis Agent")) return { hypotheses: [
     { statement: "Retention decline is driven by frequent flyers lapsing", driver: "Loyalty", evidence: ev, missingEvidence: ["Cohort data"], confidence: 0.72, businessImpact: "high" },
     { statement: "Competitor price cuts drive switching", driver: "Price", evidence: [], missingEvidence: ["Fare index"], confidence: 0.4, businessImpact: "medium" },
@@ -110,6 +110,18 @@ describe("consulting lifecycle", () => {
     expect(industryQ?.suggested).toBe("Airlines");
     expect(tailored.interview.focus).toContain("passengers");
 
+    // Shared data is stored as a masked profile: personal data never persists.
+    const shared = await svc.addDataset(auth, created.id, svc.DatasetInputSchema.parse({
+      name: "Bookings by route",
+      kind: "table",
+      content: "email,route,month,bookings\nnaman@example.com,DEL-BOM,2026-01,4\npriya@example.com,DEL-BLR,2026-02,2",
+    }));
+    const ds = shared.case.datasets![0]!;
+    expect(ds.rowCount).toBe(2);
+    expect(ds.maskedColumns).toContain("email");
+    expect(JSON.stringify(ds)).not.toContain("example.com");
+    expect(ds.columns!.find((c) => c.name === "bookings")).toMatchObject({ type: "number", sum: 6 });
+
     // Diagnosis is gated on discovery readiness.
     await expect(svc.diagnose(auth, created.id, false)).rejects.toMatchObject({ code: "NOT_READY" });
 
@@ -131,6 +143,13 @@ describe("consulting lifecycle", () => {
     expect(deeper.case.adaptiveQuestions.map((q) => q.key)).toContain("performance.ai_route_mix");
 
     await svc.diagnose(auth, created.id, false);
+    // The activity log shows what was analysed and the model's reasoning summary; the summary is not stored on the case.
+    const { getActivity } = await import("./activity");
+    const act = await getActivity("org1", created.id);
+    expect(act!.steps.some((s) => s.kind === "thinking" && s.label.includes("Ruled out seasonality"))).toBe(true);
+    expect(act!.steps.some((s) => s.kind === "analysis" && s.label === "Using data you shared")).toBe(true);
+    expect(act!.history?.length).toBeGreaterThan(0);
+    expect(JSON.stringify((await svc.getCase(auth, created.id)).case.diagnosis)).not.toContain("thinking_summary");
     let view = await svc.generateHypotheses(auth, created.id);
     expect(view.case.status).toBe("validation");
     const [h1, h2] = view.case.hypotheses;

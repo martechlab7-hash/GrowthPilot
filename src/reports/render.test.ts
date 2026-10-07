@@ -76,3 +76,45 @@ describe("report renderers with hostile content", () => {
   it("renders DOCX", async () => expect((await renderDocx(model)).subarray(0, 2).toString()).toBe("PK"), 30_000);
   it("renders PPTX", async () => expect((await renderPptx(model)).subarray(0, 2).toString()).toBe("PK"), 30_000);
 });
+
+describe("report layout", () => {
+  const flow: ReportModel = {
+    ...model,
+    title: "Flow",
+    companyName: "Acme",
+    sections: [
+      {
+        id: "activation", title: "11. Activation Strategy", headline: "Activation journeys",
+        blocks: [
+          { type: "callout", label: "Winback", text: "Objective: retain" },
+          { type: "flow", steps: [
+            { type: "trigger", label: "No booking in 90 days" },
+            { type: "condition", label: "High value?", branches: [{ label: "Yes", target: "Personal offer" }, { label: "No", target: "Reminder email" }] },
+            { type: "channel", label: "Personal offer" },
+            { type: "channel", label: "Reminder email" },
+            { type: "wait", label: "7 days" },
+            { type: "measure", label: "Rebooking vs control" },
+          ] },
+        ],
+      },
+    ],
+  };
+  const pageCount = (pdf: Buffer) => (pdf.toString("latin1").match(/\/Type \/Page\b/g) ?? []).length;
+
+  it("adds no blank footer pages to the PDF", async () => {
+    // Cover + one content page, and nothing else.
+    expect(pageCount(await renderPdf(flow))).toBe(2);
+  });
+
+  it("renders journey flowcharts in every format", async () => {
+    const { renderMarkdown } = await import("./markdown");
+    const md = renderMarkdown(flow);
+    expect(md).toContain("```mermaid");
+    expect(md).toContain('s1 -- "Yes" --> s2');
+    // Both branch targets re-join at the step after them, not at each other.
+    expect(md).toContain("s2 --> s4");
+    expect(md).not.toContain("s2 --> s3");
+    expect((await renderDocx(flow)).length).toBeGreaterThan(1000);
+    expect((await renderPptx(flow)).length).toBeGreaterThan(1000);
+  });
+});

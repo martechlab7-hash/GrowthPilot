@@ -17,6 +17,7 @@ import {
   type Organization,
   type Question,
   type TranscriptEntry,
+  type Dataset,
 } from "@/domain/types";
 import { classifyProblem } from "@/engine/classify";
 import { emptyContext, getNumber, isKnown, markUnknown, setField } from "@/engine/context";
@@ -33,6 +34,9 @@ import { badRequest, HttpError, notFound } from "../errors";
 import { log } from "../logger";
 import { inBackground } from "../background";
 import { can } from "../permissions";
+import { parseDelimited } from "@/lib/data/csv";
+import { detectPiiColumns, maskColumns, maskFreeText } from "@/lib/data/pii";
+import { profileTable } from "@/lib/data/profile";
 import { getStore } from "../store";
 import { audit } from "./org";
 import { gatewayFor } from "./providers";
@@ -899,4 +903,73 @@ export async function exportCaseData(auth: AuthContext, caseId: string) {
   const c = await loadCase(auth, caseId);
   const history = await listHistory(auth, caseId);
   return { exportedAt: now(), case: c, decisions: history.decisions, versions: history.versions };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Shared data                                                                 */
+/* -------------------------------------------------------------------------- */
+
+const MAX_DATASETS = 10;
+
+export const DatasetInputSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  kind: z.enum(["table", "text"]),
+  /** Already masked in the browser; masked again here as a safety net. */
+  content: z.string().min(1).max(3_000_000),
+  note: z.string().trim().max(500).optional(),
+  maskedColumns: z.array(z.string().max(200)).max(200).default([]),
+  removedColumns: z.array(z.string().max(200)).max(200).default([]),
+  /** Columns the user confirmed are not personal (only honoured for name-based flags). */
+  keptColumns: z.array(z.string().max(200)).max(200).default([]),
+});
+
+/**
+ * Store a shared dataset as a compact, PII-masked profile (column stats and a
+ * short sample). The raw file is never persisted.
+ */
+export async function addDataset(auth: AuthContext, caseId: string, input: z.infer<typeof DatasetInputSchema>) {
+  const current = await loadCase(auth, caseId);
+  if ((current.datasets?.length ?? 0) >= MAX_DATASETS) throw badRequest(`A case can hold up to ${MAX_DATASETS} datasets. Remove one first.`);
+  const base = {
+    id: id("ds"),
+    name: input.name,
+    ...(input.note ? { note: input.note } : {}),
+    sizeBytes: Buffer.byteLength(input.content),
+    createdAt: now(),
+    createdBy: auth.uid,
+  };
+  let ds: Dataset;
+  if (input.kind === "table") {
+    let table = parseDelimited(input.content);
+    if (!table.headers.length || !table.rows.length) throw badRequest("The file has no data rows. Check that the first row contains column names.");
+    // Server-side safety net: anything that still looks personal is pseudonymised.
+    const kept = new Set(input.keptColumns);
+    const leftover = detectPiiColumns(table).filter((p) => !(kept.has(p.name) && p.reason.startsWith("column name")));
+    if (leftover.length) table = maskColumns(table, leftover.map((p) => p.index), []);
+    const profile = profileTable(table);
+    ds = {
+      ...base, kind: "table", rowCount: profile.rowCount, columns: profile.columns, sample: maskFreeText(profile.sample).text,
+      maskedColumns: [...new Set([...input.maskedColumns, ...leftover.map((p) => p.name)])], removedColumns: input.removedColumns,
+    };
+  } else {
+    const masked = maskFreeText(input.content);
+    ds = { ...base, kind: "text", excerpt: masked.text.slice(0, 8000), maskedColumns: [], removedColumns: [], maskedItems: masked.masked };
+  }
+  const updated = await mutate(auth, caseId, (c) => ({
+    ...c,
+    datasets: [...(c.datasets ?? []), ds],
+    analysisStale: c.analysisStale || !!c.diagnosis,
+    transcript: [
+      ...c.transcript,
+      entry("user", "message", ds.kind === "table" ? `Shared data: ${ds.name} (${ds.rowCount} rows, ${ds.columns?.length} columns)` : `Shared notes: ${ds.name}`),
+    ].slice(-400),
+  }));
+  await audit(auth.orgId, auth.uid, "case.dataset.add", caseId, { dataset: ds.id, kind: ds.kind, masked: ds.maskedColumns.length });
+  return withDerived(updated);
+}
+
+export async function removeDataset(auth: AuthContext, caseId: string, datasetId: string) {
+  const updated = await mutate(auth, caseId, (c) => ({ ...c, datasets: (c.datasets ?? []).filter((d) => d.id !== datasetId) }));
+  await audit(auth.orgId, auth.uid, "case.dataset.remove", caseId, { dataset: datasetId });
+  return withDerived(updated);
 }

@@ -2,6 +2,7 @@ import "server-only";
 import PptxGenJS from "pptxgenjs";
 import type { Block, ReportModel, ReportSection } from "./model";
 import { fit, logoOf } from "./brandAssets";
+import { branchLines, flowStyle } from "./flowStyle";
 
 const hex = (c: string) => c.replace("#", "").toUpperCase();
 const MAX_ROWS = 6;
@@ -92,7 +93,7 @@ function paginate(s: ReportSection): Block[][] {
       }
       continue;
     }
-    const w = b.type === "bullets" ? Math.min(b.items.length, MAX_BULLETS) : b.type === "callout" ? 2 : 1;
+    const w = b.type === "bullets" ? Math.min(b.items.length, MAX_BULLETS) : b.type === "callout" ? 2 : b.type === "flow" ? 6 : 1;
     if (weight + w > 8) push();
     current.push(b.type === "bullets" ? { ...b, items: b.items.slice(0, MAX_BULLETS) } : b);
     weight += w;
@@ -137,5 +138,50 @@ function drawBlock(slide: Slide, b: Block, y: number, t: { font: string; primary
       slide.addTable(rows, { x: 0.5, y, w: 12.3, fontSize: 11, fontFace: t.font, color: "1F2937", border: { type: "solid", color: "D5DCE6", pt: 0.5 }, valign: "top", autoPage: false });
       return y + h + 0.2;
     }
+    case "flow":
+      return drawFlow(slide, b.steps, y, t.font);
   }
+}
+
+/** Journey flowchart: rows of colour-coded rounded boxes joined by arrows, elbow connectors between rows. */
+function drawFlow(slide: Slide, steps: Extract<Block, { type: "flow" }>["steps"], top: number, font: string): number {
+  const perRow = steps.length > 12 ? 5 : 4;
+  const gap = 0.42;
+  const x0 = 0.5;
+  const boxW = (12.3 - gap * (perRow - 1)) / perRow;
+  const rows = Math.ceil(steps.length / perRow);
+  const avail = 6.85 - top;
+  const rowGap = 0.4;
+  const boxH = Math.max(0.6, Math.min(1.25, (avail - rowGap * (rows - 1)) / rows));
+  const arrow = { color: "94A3B8", width: 1.5 };
+  steps.forEach((st, i) => {
+    const r = Math.floor(i / perRow);
+    const k = i % perRow;
+    const x = x0 + k * (boxW + gap);
+    const y = top + r * (boxH + rowGap);
+    const style = flowStyle(st.type);
+    slide.addText(
+      [
+        { text: `${i + 1}  ${style.label.toUpperCase()}`, options: { bold: true, color: hex(style.stroke), fontSize: 8, breakLine: true, charSpacing: 1 } },
+        { text: clip(st.label, 110), options: { bold: true, color: "0F172A", fontSize: 11, breakLine: !!st.branches?.length } },
+        ...branchLines(st).map((line, j, all) => ({ text: `• ${clip(line, 60)}`, options: { color: "92400E", fontSize: 8.5, breakLine: j < all.length - 1 } })),
+      ],
+      {
+        shape: "roundRect", rectRadius: 0.08, x, y, w: boxW, h: boxH, fontFace: font, valign: "top", margin: 6, fit: "shrink",
+        fill: { color: hex(style.fill) }, line: { color: hex(style.stroke), width: 1.25, ...(st.type === "condition" ? { dashType: "dash" as const } : {}) },
+      },
+    );
+    const last = i === steps.length - 1;
+    if (!last && k < perRow - 1) {
+      slide.addShape("line", { x: x + boxW + 0.04, y: y + boxH / 2, w: gap - 0.08, h: 0, line: { ...arrow, endArrowType: "triangle" } });
+    } else if (!last) {
+      // Elbow: down from this box, left across, down into the first box of the next row.
+      const midY = y + boxH + rowGap / 2;
+      const firstX = x0 + boxW / 2;
+      slide.addShape("line", { x: x + boxW / 2, y: y + boxH, w: 0, h: rowGap / 2, line: arrow });
+      slide.addShape("line", { x: firstX, y: midY, w: x + boxW / 2 - firstX, h: 0, line: arrow });
+      slide.addShape("line", { x: firstX, y: midY, w: 0, h: rowGap / 2, line: { ...arrow, endArrowType: "triangle" } });
+    }
+  });
+  return top + rows * (boxH + rowGap);
 }

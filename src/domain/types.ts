@@ -160,6 +160,39 @@ export const ScoredQuestionSchema = QuestionSchema.extend({
   suggested: FieldValueSchema.optional(),
 });
 
+/** Data the user shared (CSV/TSV/text). Only a masked profile and sample are kept, never the raw file. */
+export const DatasetSchema = z.object({
+  id: z.string(),
+  name: z.string().max(120),
+  kind: z.enum(["table", "text"]),
+  note: z.string().max(500).optional(),
+  sizeBytes: z.number(),
+  createdAt: z.string(),
+  createdBy: z.string(),
+  rowCount: z.number().optional(),
+  columns: z
+    .array(
+      z.object({
+        name: z.string(),
+        type: z.enum(["number", "date", "text"]),
+        filled: z.number(),
+        distinct: z.number(),
+        min: z.union([z.number(), z.string()]).optional(),
+        max: z.union([z.number(), z.string()]).optional(),
+        mean: z.number().optional(),
+        sum: z.number().optional(),
+        top: z.array(z.object({ value: z.string(), count: z.number() })).optional(),
+      }),
+    )
+    .optional(),
+  sample: z.string().max(4000).optional(),
+  excerpt: z.string().max(8000).optional(),
+  maskedColumns: z.array(z.string()),
+  removedColumns: z.array(z.string()),
+  maskedItems: z.number().optional(),
+});
+export type Dataset = z.infer<typeof DatasetSchema>;
+
 /**
  * Per-case interview plan written by the Interview Planner agent: which bank
  * questions matter for THIS problem, and how to phrase them in its context.
@@ -521,6 +554,7 @@ export const CaseSchema = z.object({
   askedQuestionIds: z.array(z.string()),
   adaptiveQuestions: z.array(QuestionSchema),
   questionPlan: QuestionPlanSchema.optional(),
+  datasets: z.array(DatasetSchema).optional(),
   selectedFrameworks: z.array(z.string()),
   diagnosis: DiagnosisSchema.optional(),
   hypotheses: z.array(HypothesisSchema),

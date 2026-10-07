@@ -16,6 +16,35 @@ function block(b: Block): string {
         `| ${b.headers.map(() => "---").join(" | ")} |`,
         ...b.rows.map((r) => `| ${r.map(esc).join(" | ")} |`),
       ].join("\n");
+    case "flow": {
+      // Mermaid renders as a flowchart on GitHub, Notion, Obsidian and most Markdown viewers.
+      const q = (t: string) => t.replace(/"/g, "'").replace(/[\[\]{}<>]/g, " ");
+      const lines = ["```mermaid", "flowchart LR"];
+      b.steps.forEach((st, i) => {
+        const text = `${i + 1}. ${q(st.label)}`;
+        lines.push(st.type === "condition" ? `  s${i}{"${text}"}` : `  s${i}["${text}"]`);
+      });
+      const idx = (label?: string) => b.steps.findIndex((x) => x.label === label);
+      // Branch targets re-join the flow after the last sibling branch, not at each other.
+      const rejoin = new Map<number, number>();
+      for (const st of b.steps) {
+        const targets = (st.branches ?? []).map((br) => idx(br.target)).filter((j) => j >= 0);
+        if (targets.length > 1) {
+          const after = Math.max(...targets) + 1;
+          for (const j of targets) rejoin.set(j, after);
+        }
+      }
+      b.steps.forEach((st, i) => {
+        const targets = (st.branches ?? []).map((br) => ({ br, j: idx(br.target) })).filter((x) => x.j >= 0);
+        if (targets.length) for (const t of targets) lines.push(`  s${i} -- "${q(t.br.label)}" --> s${t.j}`);
+        else {
+          const next = rejoin.get(i) ?? i + 1;
+          if (next < b.steps.length) lines.push(`  s${i} --> s${next}`);
+        }
+      });
+      lines.push("```");
+      return lines.join("\n");
+    }
   }
 }
 

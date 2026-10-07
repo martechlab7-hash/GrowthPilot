@@ -1,5 +1,6 @@
 "use client";
 
+import { Flowchart } from "@/components/charts/Flowchart";
 import { useEffect, useState } from "react";
 import { Download, FileText, Map as MapIcon } from "lucide-react";
 import { Button, Card, CardBody, CardHeader, EmptyState, ErrorNote, Select, Spinner } from "@/components/ui";
@@ -61,6 +62,8 @@ export function BlockView({ b }: { b: Block }) {
           </table>
         </div>
       );
+    case "flow":
+      return <div className="overflow-x-auto rounded-xl border border-line bg-canvas/50 p-4"><Flowchart steps={b.steps} /></div>;
   }
 }
 

@@ -9,7 +9,22 @@ export interface ActivityStep {
   label: string;
   detail?: string;
   status: "running" | "done" | "error";
+  /** analysis = what is being examined; thinking = the model's own summary; ai = provider calls. */
+  kind?: "analysis" | "thinking" | "ai";
 }
+
+/** A finished run kept for the "previous runs" list. */
+export interface ActivityRun {
+  operation: string;
+  status: "running" | "succeeded" | "failed";
+  provider?: string;
+  model?: string;
+  startedAt: string;
+  finishedAt?: string;
+  steps: ActivityStep[];
+}
+
+const HISTORY = 6;
 
 /** Live record of the AI operation running on a case (one document per case). */
 export interface CaseActivity {
@@ -24,6 +39,8 @@ export interface CaseActivity {
   updatedAt: string;
   finishedAt?: string;
   steps: ActivityStep[];
+  /** Earlier runs on this case, newest first. */
+  history?: ActivityRun[];
 }
 
 const OPERATION_LABELS: Record<string, string> = {
@@ -54,19 +71,46 @@ export class ActivityRecorder implements Progress {
     this.doc = { id: caseId, organizationId: orgId, caseId, operation: OPERATION_LABELS[operation] ?? operation, status: "running", startedAt: t, updatedAt: t, steps: [] };
   }
 
+  private loaded = false;
+
   private flush() {
-    const snapshot = structuredClone(this.doc);
-    this.queue = this.queue.then(() => col().set(snapshot)).catch((err) => log("warn", "activity.write_failed", { message: (err as Error).message }));
+    if (!this.loaded) {
+      this.loaded = true;
+      // Carry earlier runs forward so the panel can show them.
+      this.queue = this.queue
+        .then(async () => {
+          const prev = await col().get(this.doc.id);
+          if (prev && prev.organizationId === this.doc.organizationId) {
+            const { history = [], id: _i, organizationId: _o, caseId: _c, updatedAt: _u, ...run } = prev;
+            void _i; void _o; void _c; void _u;
+            this.doc.history = [{ ...run, steps: run.steps.slice(-40) }, ...history].slice(0, HISTORY);
+          }
+        })
+        .catch(() => {});
+    }
+    const queue = this.queue.then(() => {
+      const snapshot = structuredClone(this.doc);
+      return col().set(snapshot);
+    });
+    this.queue = queue.catch((err) => log("warn", "activity.write_failed", { message: (err as Error).message }));
     return this.queue;
   }
 
-  step(label: string, detail?: string, status: ActivityStep["status"] = "running") {
+  step(label: string, detail?: string, status: ActivityStep["status"] = "running", kind?: ActivityStep["kind"]) {
     const t = new Date().toISOString();
     for (const s of this.doc.steps) if (s.status === "running") s.status = "done";
-    this.doc.steps.push({ at: t, label: clip(label, 240), ...(detail ? { detail: clip(detail, 600) } : {}), status });
+    this.doc.steps.push({ at: t, label: clip(label, 240), ...(detail ? { detail: clip(detail, 600) } : {}), status, ...(kind ? { kind } : {}) });
     this.doc.steps = this.doc.steps.slice(-60);
     this.doc.updatedAt = t;
     void this.flush();
+  }
+
+  analysis(label: string, detail?: string) {
+    this.step(label, detail, "done", "analysis");
+  }
+
+  think(thought: string) {
+    this.step(thought, undefined, "done", "thinking");
   }
 
   ai(e: AIEvent) {
@@ -74,10 +118,10 @@ export class ActivityRecorder implements Progress {
       case "attempt":
         this.doc.provider = e.provider;
         this.doc.model = e.model;
-        this.step(`Calling ${e.provider} · ${e.model}`, e.attempt > 1 ? `Attempt ${e.attempt}` : "Waiting for the model to respond (this can take 20–90 seconds)");
+        this.step(`Calling ${e.provider} · ${e.model}`, e.attempt > 1 ? `Attempt ${e.attempt}` : "Waiting for the model to respond (this can take 20–90 seconds)", "running", "ai");
         break;
       case "response":
-        this.step(`Response received from ${e.model}`, `${(e.latencyMs / 1000).toFixed(1)}s · ${e.inputTokens.toLocaleString("en")} input / ${e.outputTokens.toLocaleString("en")} output tokens`, "done");
+        this.step(`Response received from ${e.model}`, `${(e.latencyMs / 1000).toFixed(1)}s · ${e.inputTokens.toLocaleString("en")} input / ${e.outputTokens.toLocaleString("en")} output tokens`, "done", "ai");
         break;
       case "repair":
         this.step("Output did not match the expected structure — asking the model to correct it", e.reason.slice(0, 200));
