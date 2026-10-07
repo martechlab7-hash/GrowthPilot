@@ -6,6 +6,7 @@ import { FRAMEWORKS } from "@/knowledge/frameworks";
 import { MATURITY_LEVELS } from "@/engine/maturity";
 import { Card, CardBody, CardHeader, PageHeader } from "@/components/ui";
 import { ResourceLinks } from "@/components/knowledge/ResourceLinks";
+import { BenchmarkLibrary } from "@/components/knowledge/BenchmarkLibrary";
 
 export default function KnowledgePage() {
   const industries = INDUSTRIES.filter((i) => i.id !== "other");
@@ -24,6 +25,8 @@ export default function KnowledgePage() {
       </div>
 
       <ResourceLinks />
+
+      <BenchmarkLibrary />
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-[0.1em] text-subtle">Industry intelligence</h2>

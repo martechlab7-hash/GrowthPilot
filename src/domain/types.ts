@@ -615,6 +615,21 @@ export const CaseSchema = z.object({
   questionPlan: QuestionPlanSchema.optional(),
   datasets: z.array(DatasetSchema).optional(),
   debateStatus: z.enum(["pending", "done", "failed"]).optional(),
+  /** Team discussion on hypotheses, recommendations or the case. */
+  comments: z
+    .array(z.object({
+      id: z.string(),
+      target: z.enum(["case", "hypothesis", "recommendation"]),
+      targetId: z.string(),
+      text: z.string().max(2000),
+      by: z.string(),
+      byName: z.string(),
+      at: z.string(),
+    }))
+    .optional(),
+  /** Secret token for the read-only report link (top-level so it can be looked up). */
+  shareToken: z.string().optional(),
+  share: z.object({ audience: z.string(), createdAt: z.string(), createdBy: z.string() }).optional(),
   selectedFrameworks: z.array(z.string()),
   diagnosis: DiagnosisSchema.optional(),
   hypotheses: z.array(HypothesisSchema),

@@ -1,6 +1,7 @@
 "use client";
 
 import { OutcomeTracker } from "./OutcomeTracker";
+import { CommentThread } from "./CommentThread";
 import { useState } from "react";
 import { Lock, Target } from "lucide-react";
 import type { Recommendation } from "@/domain/types";
@@ -34,7 +35,7 @@ export function Recommendations({ view, ctl, canManage, go }: CaseTabProps) {
           <PriorityMatrix recommendations={c.recommendations} />
         </CardBody>
       </Card>
-      {c.recommendations.map((r, i) => <RecommendationCard key={r.id} r={r} index={i + 1} ctl={ctl} canManage={canManage} hypotheses={c.hypotheses.map((h) => ({ id: h.id, statement: h.statement }))} />)}
+      {c.recommendations.map((r, i) => <RecommendationCard key={r.id} r={r} index={i + 1} ctl={ctl} canManage={canManage} hypotheses={c.hypotheses.map((h) => ({ id: h.id, statement: h.statement }))} comments={c.comments ?? []} />)}
       {canManage && (
         <div className="flex justify-end gap-2">
           <Button variant="outline" loading={ctl.busy === "Building recommendations"} onClick={() => ctl.run("Building recommendations", "/recommendations")}>Regenerate</Button>
@@ -51,7 +52,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   return <div><div className="text-xs font-semibold uppercase tracking-wide text-muted">{label}</div><div className="mt-1 text-sm">{children}</div></div>;
 }
 
-function RecommendationCard({ r, index, ctl, canManage, hypotheses }: { r: Recommendation; index: number; ctl: CaseTabProps["ctl"]; canManage: boolean; hypotheses: { id: string; statement: string }[] }) {
+function RecommendationCard({ r, index, ctl, canManage, hypotheses, comments }: { r: Recommendation; index: number; ctl: CaseTabProps["ctl"]; canManage: boolean; hypotheses: { id: string; statement: string }[]; comments: NonNullable<CaseTabProps["view"]["case"]["comments"]> }) {
   const [editing, setEditing] = useState(false);
   const [scores, setScores] = useState({ impactScore: r.impactScore, effortScore: r.effortScore, confidence: r.confidence, strategicFit: r.strategicFit, timeToValueWeeks: r.timeToValueWeeks });
   const linked = hypotheses.filter((h) => r.hypothesisIds.includes(h.id));
@@ -91,6 +92,7 @@ function RecommendationCard({ r, index, ctl, canManage, hypotheses }: { r: Recom
           </div>
         </details>
         <OutcomeTracker r={r} ctl={ctl} canEdit={canManage} />
+        <CommentThread target="recommendation" targetId={r.id} comments={comments} ctl={ctl} />
         {canManage && (editing ? (
           <div className="grid gap-3 rounded-lg border border-line p-3 sm:grid-cols-6 sm:items-end">
             {([["impactScore", "Impact (1–5)", 1, 5, 1], ["effortScore", "Effort (1–5)", 1, 5, 1], ["strategicFit", "Fit (1–5)", 1, 5, 1], ["confidence", "Confidence (0–1)", 0, 1, 0.05], ["timeToValueWeeks", "Weeks to value", 0, 260, 1]] as const).map(([k, label, min, max, step]) => (

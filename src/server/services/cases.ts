@@ -29,9 +29,10 @@ import { overallProgress, stageProgress } from "@/engine/progress";
 import { prioritize } from "@/engine/prioritization";
 import { resourcesForAgents } from "./resources";
 import { memoryForAgents } from "./memory";
+import { benchmarksForAgents } from "./benchmarks";
 import { getIndustry, industryIdFromName } from "@/knowledge/industries";
 import type { AuthContext } from "../auth";
-import { badRequest, HttpError, notFound } from "../errors";
+import { badRequest, forbidden, HttpError, notFound } from "../errors";
 import { log } from "../logger";
 import { verifyEvidence, withAssessment } from "@/engine/verify";
 import { getEconomicsModel, modelForProblem } from "@/engine/economicsModels";
@@ -196,12 +197,19 @@ async function withAi<T>(
   const progress = new ActivityRecorder(auth.orgId, c.id, operation);
   progress.step("Started", `${Object.keys(c.context.fields).length} context facts · ${c.selectedFrameworks.length} diagnostic frameworks selected`);
   try {
-    const [links, memory] = operation === "chat" ? [undefined, undefined] : await Promise.all([
+    const deep = ["recommendations", "plan", "report", "diagnose", "hypotheses", "debate"].includes(operation);
+    const [links, memory, benchmarks] = operation === "chat" ? [undefined, undefined, undefined] : await Promise.all([
       resourcesForAgents(auth.orgId).catch(() => undefined),
-      ["recommendations", "plan", "report", "diagnose", "hypotheses"].includes(operation) ? memoryForAgents(auth.orgId, c).catch(() => undefined) : Promise.resolve(undefined),
+      deep ? memoryForAgents(auth.orgId, c).catch(() => undefined) : Promise.resolve(undefined),
+      deep ? benchmarksForAgents(auth.orgId, getIndustry(c.industryId)?.name).catch(() => undefined) : Promise.resolve(undefined),
     ]);
+    if (benchmarks) progress.analysis("Comparing with your sourced benchmarks", `${benchmarks.split("\n").length} benchmark(s) from your library`);
     if (memory) progress.analysis("Checking your organisation's history", memory.split("\n").map((l) => l.split(":")[0]).join(" · "));
-    const references = [links, memory ? `ORGANISATION HISTORY (past cases and measured outcomes):\n${memory}` : undefined].filter(Boolean).join("\n\n") || undefined;
+    const references = [
+      links,
+      memory ? `ORGANISATION HISTORY (past cases and measured outcomes):\n${memory}` : undefined,
+      benchmarks ? `EXTERNAL BENCHMARKS (sourced by the organisation; external context, NOT the client's data; always name the source when used):\n${benchmarks}` : undefined,
+    ].filter(Boolean).join("\n\n") || undefined;
     if (references) progress.step("Knowledge base", `${references.split("\n").length} organization reference link(s) shared with the agents`);
     const result = await fn({ gateway, call: { organizationId: auth.orgId, userId: auth.uid, caseId: c.id }, progress, ...(references ? { references } : {}) });
     await progress.finish("succeeded");
@@ -1073,4 +1081,65 @@ export async function recordOutcome(auth: AuthContext, caseId: string, recommend
   }));
   await audit(auth.orgId, auth.uid, "case.outcome", caseId, { recommendation: recommendationId, status: input.status });
   return withDerived(updated);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Collaboration                                                               */
+/* -------------------------------------------------------------------------- */
+
+export const CommentInputSchema = z.object({
+  target: z.enum(["case", "hypothesis", "recommendation"]),
+  targetId: z.string().max(80),
+  text: z.string().trim().min(1).max(2000),
+});
+
+export async function addComment(auth: AuthContext, caseId: string, input: z.infer<typeof CommentInputSchema>) {
+  const c = await loadCase(auth, caseId);
+  if (input.target === "hypothesis" && !c.hypotheses.some((h) => h.id === input.targetId)) throw notFound("Hypothesis");
+  if (input.target === "recommendation" && !c.recommendations.some((r) => r.id === input.targetId)) throw notFound("Recommendation");
+  const comment = {
+    id: id("cmt"), ...input,
+    by: auth.uid,
+    byName: auth.profile?.displayName && !auth.profile.displayName.includes("@") ? auth.profile.displayName : auth.name.split("@")[0] ?? "Teammate",
+    at: now(),
+  };
+  const updated = await mutate(auth, caseId, (cur) => ({ ...cur, comments: [...(cur.comments ?? []), comment].slice(-500) }));
+  return withDerived(updated);
+}
+
+export async function deleteComment(auth: AuthContext, caseId: string, commentId: string) {
+  const c = await loadCase(auth, caseId);
+  const cm = (c.comments ?? []).find((x) => x.id === commentId);
+  if (!cm) throw notFound("Comment");
+  if (cm.by !== auth.uid && !(auth.profile && can(auth.profile.role, "case.manage"))) throw forbidden("You can only delete your own comments.");
+  return withDerived(await mutate(auth, caseId, (cur) => ({ ...cur, comments: (cur.comments ?? []).filter((x) => x.id !== commentId) })));
+}
+
+export const ShareInputSchema = z.object({ audience: z.enum(["full", "executive", "crm", "data"]).default("executive") });
+
+/** Create (or rotate) the read-only report link. Rotating invalidates the old link. */
+export async function shareReport(auth: AuthContext, caseId: string, input: z.infer<typeof ShareInputSchema>) {
+  const c = await loadCase(auth, caseId);
+  if (!c.recommendations.length) throw new HttpError(409, "Build recommendations before sharing the report.", "NOTHING_TO_SHARE");
+  const token = Buffer.from(crypto.getRandomValues(new Uint8Array(24))).toString("base64url");
+  const updated = await mutate(auth, caseId, (cur) => ({ ...cur, shareToken: token, share: { audience: input.audience, createdAt: now(), createdBy: auth.uid } }));
+  await audit(auth.orgId, auth.uid, "case.share", caseId, { audience: input.audience });
+  return withDerived(updated);
+}
+
+export async function revokeShare(auth: AuthContext, caseId: string) {
+  const updated = await mutate(auth, caseId, (cur) => {
+    const { shareToken: _t, share: _s, ...rest } = cur;
+    void _t; void _s;
+    return rest as Case;
+  });
+  await audit(auth.orgId, auth.uid, "case.share.revoke", caseId);
+  return withDerived(updated);
+}
+
+/** Public, read-only lookup by share token (no sign-in). Returns null for unknown or revoked tokens. */
+export async function sharedCase(token: string): Promise<Case | null> {
+  if (!/^[A-Za-z0-9_-]{24,64}$/.test(token)) return null;
+  const rows = await cases().query({ where: [["shareToken", "==", token]], limit: 1 });
+  return rows[0] ?? null;
 }

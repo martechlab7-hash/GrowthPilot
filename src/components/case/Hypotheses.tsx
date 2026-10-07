@@ -9,6 +9,7 @@ import { timeAgo } from "@/lib/labels";
 import { cn } from "@/lib/cn";
 import { EvidenceList } from "./DiagnosisView";
 import { DebatePanel, PanelLineup } from "./DebatePanel";
+import { CommentThread } from "./CommentThread";
 import type { CaseTabProps } from "./Workspace";
 
 const STATUS: Record<Hypothesis["status"], { label: string; tone: "neutral" | "green" | "amber" | "red"; you: string; border: string }> = {
@@ -121,12 +122,12 @@ export function Hypotheses({ view, ctl, canManage, go }: CaseTabProps) {
         </CardBody>
       </Card>
 
-      {all.map((h, i) => <HypothesisCard key={h.id} h={h} index={i + 1} ctl={ctl} canManage={canManage} debating={debating && !h.debate && h.status !== "disagreed"} />)}
+      {all.map((h, i) => <HypothesisCard key={h.id} h={h} index={i + 1} ctl={ctl} canManage={canManage} debating={debating && !h.debate && h.status !== "disagreed"} comments={c.comments ?? []} />)}
     </div>
   );
 }
 
-function HypothesisCard({ h, index, ctl, canManage, debating }: { h: Hypothesis; index: number; ctl: CaseTabProps["ctl"]; canManage: boolean; debating: boolean }) {
+function HypothesisCard({ h, index, ctl, canManage, debating, comments }: { h: Hypothesis; index: number; ctl: CaseTabProps["ctl"]; canManage: boolean; debating: boolean; comments: NonNullable<CaseTabProps["view"]["case"]["comments"]> }) {
   const [mode, setMode] = useState<null | "partially_agree" | "disagree" | "edit">(null);
   const [changing, setChanging] = useState(false);
   const [text, setText] = useState("");
@@ -228,6 +229,7 @@ function HypothesisCard({ h, index, ctl, canManage, debating }: { h: Hypothesis;
             <ErrorNote error={error} />
           </div>
         )}
+        <CommentThread target="hypothesis" targetId={h.id} comments={comments} ctl={ctl} />
       </CardBody>
     </Card>
   );

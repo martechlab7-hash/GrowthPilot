@@ -61,9 +61,9 @@ interface AgentDeps {
   references?: string;
 }
 
-const REFERENCE_AGENTS = new Set(["interview", "diagnostic", "hypothesis", "recommendation", "activation", "measurement", "report"]);
+const REFERENCE_AGENTS = new Set(["interview", "diagnostic", "hypothesis", "recommendation", "activation", "measurement", "report", "debate"]);
 const REFERENCE_NOTE =
-  "Links the organization saved in its knowledge base. Only the titles and notes below are known; the pages were NOT fetched. Use them as pointers to internal methodology or context, cite them by title when relevant, and never invent their contents.";
+  "Organisation context. Saved links: only their titles and notes are known (pages were NOT fetched), so never invent their contents. Past cases and measured outcomes: precedent, not proof for this case. Benchmarks: external figures with their source; name the source and keep them separate from the client's own data.";
 
 /** Run one agent with PII masked on the way out and restored on the way back. */
 async function runAgent<T extends z.ZodType>(
@@ -79,7 +79,7 @@ async function runAgent<T extends z.ZodType>(
   const maxTokens = opts.maxTokens;
   if (opts.case) explainInputs(deps, agent, opts.case);
   if (deps.references && REFERENCE_AGENTS.has(agent)) {
-    sections = { ...sections, "ORGANIZATION REFERENCES (user-supplied)": `${REFERENCE_NOTE}\n${deps.references}` };
+    sections = { ...sections, "ORGANISATION CONTEXT": `${REFERENCE_NOTE}\n${deps.references}` };
   }
   const vault: PiiVault = createVault();
   const prompt = Object.entries(sections)

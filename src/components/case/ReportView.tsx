@@ -2,7 +2,7 @@
 
 import { Flowchart } from "@/components/charts/Flowchart";
 import { useEffect, useState } from "react";
-import { Download, FileText, Map as MapIcon } from "lucide-react";
+import { Download, FileText, Link2, Map as MapIcon } from "lucide-react";
 import { Button, Card, CardBody, CardHeader, EmptyState, ErrorNote, Select, Spinner } from "@/components/ui";
 import { apiDownload, apiFetch } from "@/lib/client/api";
 import { AUDIENCES, forAudience, type Audience, type Block, type ReportModel } from "@/reports/model";
@@ -131,6 +131,8 @@ export function ReportView({ view, ctl, canManage }: CaseTabProps) {
         </CardBody>
       </Card>
 
+      {canManage && <ShareLink c={c} ctl={ctl} audience={audience} />}
+
       {!shown ? (
         <Spinner label="Building report…" />
       ) : (
@@ -156,5 +158,38 @@ export function ReportView({ view, ctl, canManage }: CaseTabProps) {
         </article>
       )}
     </div>
+  );
+}
+
+/** Read-only link for stakeholders without an account; rotate or revoke at any time. */
+function ShareLink({ c, ctl, audience }: { c: CaseTabProps["view"]["case"]; ctl: CaseTabProps["ctl"]; audience: Audience }) {
+  const [copied, setCopied] = useState(false);
+  const url = c.shareToken && typeof window !== "undefined" ? `${window.location.origin}/share/${c.shareToken}` : null;
+  return (
+    <Card className="no-print">
+      <CardBody className="flex flex-wrap items-center gap-3 text-sm">
+        <Link2 className="h-4 w-4 text-brand-600" />
+        <div className="min-w-0 flex-1">
+          <div className="font-semibold">Share a read-only link</div>
+          {url ? (
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <code className="max-w-full truncate rounded bg-canvas px-2 py-1 text-xs">{url}</code>
+              <span className="text-xs text-muted">Shows the {AUDIENCES[(c.share?.audience as Audience) ?? "executive"]?.label ?? "report"}. Anyone with the link can view it; no sign-in.</span>
+            </div>
+          ) : (
+            <p className="text-muted">Stakeholders without an account can view the {AUDIENCES[audience].label.toLowerCase()} (chosen above). Revoke the link at any time.</p>
+          )}
+        </div>
+        {url ? (
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={async () => { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 2000); }}>{copied ? "Copied" : "Copy link"}</Button>
+            <Button size="sm" variant="outline" loading={ctl.busy === "Sharing"} onClick={() => ctl.run("Sharing", "/share", { body: { audience } })}>New link</Button>
+            <Button size="sm" variant="ghost" loading={ctl.busy === "Revoking"} onClick={() => ctl.run("Revoking", "/share", { method: "DELETE" })}>Revoke</Button>
+          </div>
+        ) : (
+          <Button size="sm" loading={ctl.busy === "Sharing"} onClick={() => ctl.run("Sharing", "/share", { body: { audience } })}>Create link</Button>
+        )}
+      </CardBody>
+    </Card>
   );
 }

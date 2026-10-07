@@ -223,6 +223,26 @@ describe("consulting lifecycle", () => {
 
     await expect(chat.askCase(auth, created.id, "What is happening?")).rejects.toMatchObject({ code: "CHAT_LOCKED" });
     view = await svc.generateReport(auth, created.id);
+
+    // Collaboration: comments on hypotheses, and a revocable read-only share link.
+    {
+      const hypId = view.case.hypotheses[0]!.id;
+      view = await svc.addComment(auth, created.id, { target: "hypothesis", targetId: hypId, text: "Agree, but check corporate travellers too." });
+      const cm = view.case.comments![0]!;
+      expect(cm).toMatchObject({ target: "hypothesis", targetId: hypId });
+      await expect(svc.addComment(auth, created.id, { target: "hypothesis", targetId: "hyp_nope", text: "x" })).rejects.toMatchObject({ status: 404 });
+      const teammate: AuthContext = { ...auth, uid: "u-other", profile: { ...auth.profile!, id: "u-other", role: "analyst" } };
+      await expect(svc.deleteComment(teammate, created.id, cm.id)).rejects.toMatchObject({ status: 403 });
+
+      view = await svc.shareReport(auth, created.id, { audience: "executive" });
+      const token = view.case.shareToken!;
+      expect(token.length).toBeGreaterThanOrEqual(32);
+      expect((await svc.sharedCase(token))?.id).toBe(created.id);
+      expect(await svc.sharedCase("not-a-real-token-but-long-enough")).toBeNull();
+      view = await svc.revokeShare(auth, created.id);
+      expect(view.case.shareToken).toBeUndefined();
+      expect(await svc.sharedCase(token)).toBeNull();
+    }
     const conv = await chat.askCase(auth, created.id, "What is the main driver?");
     expect(conv.messages.at(-1)).toMatchObject({ role: "assistant", citations: ["Hypothesis 1"], outOfScope: false });
     const off = await chat.askCase(auth, created.id, "What's the weather in Paris?");
