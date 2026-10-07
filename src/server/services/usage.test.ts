@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MemoryStore } from "../store/memory";
 import { setStore } from "../store";
-import { assertAiQuota, PLAN_LIMITS, recordUsage } from "./usage";
+import { assertAiQuota, PLAN_LIMITS, planLimits, recordUsage } from "./usage";
 
 describe("daily AI allowance", () => {
   it("counts only answered requests and explains the limit", async () => {
@@ -11,5 +11,18 @@ describe("daily AI allowance", () => {
     await expect(assertAiQuota("o", "free")).resolves.toBeUndefined();
     for (let i = 0; i < PLAN_LIMITS.free.aiRequestsPerDay; i++) await recordUsage({ ...base, success: true });
     await expect(assertAiQuota("o", "free")).rejects.toThrow(/all \d+ AI requests included in the free plan today.*Settings → AI usage/);
+  });
+});
+
+describe("deployment overrides", () => {
+  it("lets a deployment raise or remove the limits", () => {
+    expect(planLimits("free").aiRequestsPerDay).toBe(PLAN_LIMITS.free.aiRequestsPerDay);
+    process.env.AI_DAILY_REQUEST_LIMIT = "2000";
+    process.env.MAX_ACTIVE_CASES = "0";
+    expect(planLimits("free")).toEqual({ aiRequestsPerDay: 2000, activeCases: Number.POSITIVE_INFINITY });
+    process.env.AI_DAILY_REQUEST_LIMIT = "nonsense";
+    expect(planLimits("free").aiRequestsPerDay).toBe(PLAN_LIMITS.free.aiRequestsPerDay);
+    delete process.env.AI_DAILY_REQUEST_LIMIT;
+    delete process.env.MAX_ACTIVE_CASES;
   });
 });

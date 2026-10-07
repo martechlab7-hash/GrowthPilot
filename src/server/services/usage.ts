@@ -12,13 +12,40 @@ interface Counter {
   requests: number;
 }
 
-/** Plan limits (spec §78). */
-export const PLAN_LIMITS: Record<Plan, { activeCases: number; aiRequestsPerDay: number }> = {
-  free: { activeCases: 3, aiRequestsPerDay: 60 },
+/**
+ * Plan limits (spec §78). These are GrowthPilot's own guard rails, separate
+ * from the AI provider's quotas: workspaces bring their own API keys and pay
+ * the provider directly, so the daily cap mainly protects against runaway
+ * usage. A deployment can override them with environment variables:
+ *   AI_DAILY_REQUEST_LIMIT  answered AI requests per workspace per day (0 = unlimited)
+ *   MAX_ACTIVE_CASES        open cases per workspace (0 = unlimited)
+ */
+const PLAN_DEFAULTS: Record<Plan, { activeCases: number; aiRequestsPerDay: number }> = {
+  free: { activeCases: 3, aiRequestsPerDay: 500 },
   professional: { activeCases: 50, aiRequestsPerDay: 600 },
   business: { activeCases: 500, aiRequestsPerDay: 3000 },
   enterprise: { activeCases: 100_000, aiRequestsPerDay: 100_000 },
 };
+
+function override(name: string): number | undefined {
+  const raw = process.env[name]?.trim();
+  if (!raw) return undefined;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return undefined;
+  return n === 0 ? Number.POSITIVE_INFINITY : Math.floor(n);
+}
+
+/** Effective limits for a plan, after deployment overrides. */
+export function planLimits(plan: Plan): { activeCases: number; aiRequestsPerDay: number } {
+  const base = PLAN_DEFAULTS[plan];
+  return {
+    activeCases: override("MAX_ACTIVE_CASES") ?? base.activeCases,
+    aiRequestsPerDay: override("AI_DAILY_REQUEST_LIMIT") ?? base.aiRequestsPerDay,
+  };
+}
+
+/** @deprecated use planLimits(plan), which applies deployment overrides. */
+export const PLAN_LIMITS = PLAN_DEFAULTS;
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -40,8 +67,8 @@ export async function recordUsage(u: UsageRecord) {
 
 export async function assertAiQuota(orgId: string, plan: Plan) {
   const counter = await getStore().collection<Counter>("usage_counters").get(`${orgId}_${today()}`);
-  const limit = PLAN_LIMITS[plan].aiRequestsPerDay;
-  if ((counter?.requests ?? 0) >= limit) {
+  const limit = planLimits(plan).aiRequestsPerDay;
+  if (Number.isFinite(limit) && (counter?.requests ?? 0) >= limit) {
     const midnight = new Date();
     midnight.setUTCHours(24, 0, 0, 0);
     const hours = Math.max(1, Math.ceil((midnight.getTime() - Date.now()) / 3_600_000));
