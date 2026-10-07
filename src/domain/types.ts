@@ -190,6 +190,18 @@ export const DatasetSchema = z.object({
   maskedColumns: z.array(z.string()),
   removedColumns: z.array(z.string()),
   maskedItems: z.number().optional(),
+  /** Deterministic analyses computed in code at upload (trend, drivers, cohort, RFM, funnel). */
+  analyses: z
+    .array(
+      z.object({
+        kind: z.enum(["trend", "drivers", "cohort", "rfm", "funnel"]),
+        title: z.string(),
+        findings: z.array(z.string()),
+        chart: z.any().optional(),
+        table: z.object({ headers: z.array(z.string()), rows: z.array(z.array(z.string())) }).optional(),
+      }),
+    )
+    .optional(),
 });
 export type Dataset = z.infer<typeof DatasetSchema>;
 

@@ -160,6 +160,11 @@ export function buildReportModel(c: Case, brand: BrandProfile): ReportModel {
     blocks: [
       ...(r?.dataAssessment ? [{ type: "paragraph" as const, text: r.dataAssessment }] : []),
       ...(factRows(["data"]).length ? [{ type: "table" as const, headers: ["Data", "Value", "Type"], rows: factRows(["data"]) }] : []),
+      ...(c.datasets ?? []).flatMap((d) => (d.analyses ?? []).map((a) => ({
+        type: "callout" as const,
+        label: `${d.name}: ${a.title} (computed from your data)`,
+        text: a.findings.join("\n"),
+      }))),
       ...(c.dataGaps.length
         ? [{ type: "table" as const, headers: ["Critical missing data", "Why needed", "Expected insight", "Priority", "Alternative proxy"], rows: c.dataGaps.map((g) => [g.dataset, g.whyNeeded, g.expectedInsight, cap(g.priority), g.alternativeProxy]) }]
         : []),

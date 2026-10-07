@@ -11,3 +11,10 @@ describe("guide chart unit formatting", () => {
     expect(fmt(5)).toBe("5");
   });
 });
+
+describe("compact axis labels", () => {
+  it("shortens large numbers", async () => {
+    const { compact } = await import("./GuideCharts");
+    expect([compact(500_000), compact(1_250_000), compact(9_500), compact(40)]).toEqual(["500K", "1.3M", "9500", "40"]);
+  });
+});

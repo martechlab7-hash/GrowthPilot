@@ -39,6 +39,7 @@ import { can } from "../permissions";
 import { parseDelimited } from "@/lib/data/csv";
 import { detectPiiColumns, maskColumns, maskFreeText } from "@/lib/data/pii";
 import { profileTable } from "@/lib/data/profile";
+import { analyzeTable } from "@/lib/data/analyze";
 import { getStore } from "../store";
 import { audit } from "./org";
 import { gatewayFor, secondOpinion } from "./providers";
@@ -1005,8 +1006,10 @@ export async function addDataset(auth: AuthContext, caseId: string, input: z.inf
     const leftover = detectPiiColumns(table).filter((p) => !(kept.has(p.name) && p.reason.startsWith("column name")));
     if (leftover.length) table = maskColumns(table, leftover.map((p) => p.index), []);
     const profile = profileTable(table);
+    const analyses = analyzeTable(table, input.name);
     ds = {
       ...base, kind: "table", rowCount: profile.rowCount, columns: profile.columns, sample: maskFreeText(profile.sample).text,
+      ...(analyses.length ? { analyses } : {}),
       maskedColumns: [...new Set([...input.maskedColumns, ...leftover.map((p) => p.name)])], removedColumns: input.removedColumns,
     };
   } else {
@@ -1020,6 +1023,7 @@ export async function addDataset(auth: AuthContext, caseId: string, input: z.inf
     transcript: [
       ...c.transcript,
       entry("user", "message", ds.kind === "table" ? `Shared data: ${ds.name} (${ds.rowCount} rows, ${ds.columns?.length} columns)` : `Shared notes: ${ds.name}`),
+      ...(ds.analyses?.length ? [entry("consultant", "message", `I analysed ${ds.name}: ${ds.analyses.map((a) => a.findings[0]).join(" ")}`)] : []),
     ].slice(-400),
   }));
   await audit(auth.orgId, auth.uid, "case.dataset.add", caseId, { dataset: ds.id, kind: ds.kind, masked: ds.maskedColumns.length });

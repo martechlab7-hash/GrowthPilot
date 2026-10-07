@@ -47,6 +47,8 @@ export interface AgentContext {
     columns?: string[];
     sample_csv?: string;
     text?: string;
+    /** Results computed in code from the full file: verified facts (cite as "analysis:<name>"). */
+    computed_analyses?: string[];
   }[];
 }
 
@@ -116,6 +118,7 @@ export function buildAgentContext(c: Case): AgentContext {
         : {}),
       ...(d.sample ? { sample_csv: d.sample } : {}),
       ...(d.excerpt ? { text: d.excerpt.slice(0, 4000) } : {}),
+      ...(d.analyses?.length ? { computed_analyses: d.analyses.flatMap((a) => a.findings.map((f) => `${a.title}: ${f}`)) } : {}),
     })),
   };
   for (const f of Object.values(c.context.fields)) {

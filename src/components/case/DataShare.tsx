@@ -1,12 +1,14 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Database, FileText, ShieldCheck, Trash2, Upload } from "lucide-react";
+import { Database, FileText, ShieldCheck, Sigma, Trash2, Upload } from "lucide-react";
 import type { Dataset } from "@/domain/types";
 import { Badge, Button, Card, CardBody, CardHeader, ErrorNote, Input, Label, Textarea } from "@/components/ui";
 import { parseDelimited, toCsv, type Table } from "@/lib/data/csv";
 import { detectPiiColumns, maskColumns, maskFreeText, type PiiColumn } from "@/lib/data/pii";
 import { cn } from "@/lib/cn";
+import { GuideChart } from "@/components/frameworks/GuideCharts";
+import type { GuideVisual } from "@/knowledge/guides/types";
 import type { CaseTabProps } from "./Workspace";
 
 const MAX_FILE = 5 * 1024 * 1024;
@@ -204,6 +206,30 @@ function Preview({ table, pii, choices }: { table: Table; pii: PiiColumn[]; choi
   );
 }
 
+/** Results computed in code from the full file (not by the AI). */
+function AnalysisList({ analyses }: { analyses: NonNullable<Dataset["analyses"]> }) {
+  return (
+    <div className="mt-4 space-y-3">
+      <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-subtle"><Sigma className="h-3.5 w-3.5" /> Computed analysis (calculated in code, not by AI)</div>
+      {analyses.map((a) => (
+        <div key={a.title} className="space-y-2 rounded-xl border border-line p-3">
+          <div className="text-sm font-semibold">{a.title}</div>
+          <ul className="list-disc space-y-0.5 pl-5 text-xs text-ink">{a.findings.map((f) => <li key={f}>{f}</li>)}</ul>
+          {a.chart && <GuideChart visual={a.chart as GuideVisual} computed />}
+          {a.table && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs tabular-nums">
+                <thead className="text-left text-subtle"><tr>{a.table.headers.map((h) => <th key={h} className="pb-1 pr-3">{h}</th>)}</tr></thead>
+                <tbody className="divide-y divide-line">{a.table.rows.map((r, i) => <tr key={i}>{r.map((v, j) => <td key={j} className="py-1 pr-3">{v}</td>)}</tr>)}</tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function DatasetList({ datasets, onRemove }: { datasets: Dataset[]; onRemove?: (id: string) => void }) {
   return (
     <div className="space-y-2">
@@ -244,6 +270,7 @@ function DatasetList({ datasets, onRemove }: { datasets: Dataset[]; onRemove?: (
               <p className="whitespace-pre-wrap text-muted">{d.excerpt?.slice(0, 600)}</p>
             )}
             {d.removedColumns.length > 0 && <p className="mt-2 text-muted">Removed before sharing: {d.removedColumns.join(", ")}</p>}
+            {d.analyses?.length ? <AnalysisList analyses={d.analyses} /> : null}
           </div>
         </details>
       ))}

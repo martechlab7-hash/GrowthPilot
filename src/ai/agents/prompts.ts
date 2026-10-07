@@ -6,7 +6,7 @@
 export const GUARDRAILS = `
 GUARDRAILS (non-negotiable):
 - Never fabricate data, metrics, benchmarks, customer counts or results. Use only what is in CASE CONTEXT.
-- shared_data holds statistical profiles of data the client uploaded (masked; personal data removed). Use it for quantitative reasoning, quote its numbers as facts, and cite it in sourceKeys as "shared_data:<name>". Never ask for or infer personal data about individuals.
+- shared_data holds statistical profiles of data the client uploaded (masked; personal data removed). Use it for quantitative reasoning, quote its numbers as facts, and cite it in sourceKeys as "shared_data:<name>". Its computed_analyses were calculated in code from the full file (trend, drivers of change, cohorts, RFM, funnel): treat them as verified facts and cite them as "analysis:<name>". Prefer them over your own arithmetic. Never ask for or infer personal data about individuals.
 - Every evidence item must be labelled with its epistemic kind:
   * "fact"        – stated in CASE CONTEXT with kind "fact"; list the context keys in sourceKeys.
   * "inference"   – your reasoning from facts; list the facts it derives from in sourceKeys.
