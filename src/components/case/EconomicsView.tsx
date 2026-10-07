@@ -62,6 +62,11 @@ export function EconomicsView({ view, ctl, canContribute }: CaseTabProps) {
   const [form, setForm] = useState<Form | null>(c.economics ? toForm(c.economics.inputs, suggested.id) : null);
   const [prov, setProv] = useState<Record<string, KnowledgeKind>>(c.economics?.inputProvenance ?? {});
   const [err, setErr] = useState<string | null>(null);
+  const [record, setRecord] = useState<{ completed: number; ratio: number | null; hitRate: number | null } | null>(null);
+
+  useEffect(() => {
+    apiFetch<{ trackRecord: { completed: number; ratio: number | null; hitRate: number | null } }>("/api/track-record").then((r) => setRecord(r.trackRecord)).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (form) return;
@@ -119,6 +124,21 @@ export function EconomicsView({ view, ctl, canContribute }: CaseTabProps) {
                 <Input id="currency" maxLength={3} value={form.currency} disabled={!canContribute} onChange={(ev) => set("currency", ev.target.value.toUpperCase())} />
               </div>
             </div>
+
+            {record && record.completed > 0 && record.ratio !== null && (
+              <div className="flex flex-wrap items-center gap-3 rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-950">
+                <span className="min-w-0 flex-1">
+                  <b>Your track record:</b> {record.completed} completed initiative{record.completed > 1 ? "s" : ""} delivered on average <b>{record.ratio}×</b> their forecast lift ({Math.round((record.hitRate ?? 0) * 100)}% met forecast).
+                </span>
+                {canContribute && record.ratio !== 1 && (
+                  <Button type="button" size="sm" variant="outline" onClick={() => {
+                    const k = record.ratio!;
+                    const scale = (v: string) => { const n = parse(v); return n === undefined ? v : String(Math.round(n * k * 10) / 10); };
+                    setForm({ ...form, conservative: scale(form.conservative), base: scale(form.base), aggressive: scale(form.aggressive) });
+                  }}>Calibrate lifts ×{record.ratio}</Button>
+                )}
+              </div>
+            )}
 
             <div className="grid gap-4 md:grid-cols-3">
               <NumberField id="eligibleCustomers" label={model.volume.label} hint={model.volume.hint} placeholder={model.volume.placeholder} value={form.volume} onChange={(v) => set("volume", v)} kind={prov.eligibleCustomers} disabled={!canContribute} />

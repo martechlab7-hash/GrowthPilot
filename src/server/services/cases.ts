@@ -28,6 +28,7 @@ import { assessMaturity } from "@/engine/maturity";
 import { overallProgress, stageProgress } from "@/engine/progress";
 import { prioritize } from "@/engine/prioritization";
 import { resourcesForAgents } from "./resources";
+import { memoryForAgents } from "./memory";
 import { getIndustry, industryIdFromName } from "@/knowledge/industries";
 import type { AuthContext } from "../auth";
 import { badRequest, HttpError, notFound } from "../errors";
@@ -195,7 +196,12 @@ async function withAi<T>(
   const progress = new ActivityRecorder(auth.orgId, c.id, operation);
   progress.step("Started", `${Object.keys(c.context.fields).length} context facts · ${c.selectedFrameworks.length} diagnostic frameworks selected`);
   try {
-    const references = operation === "chat" ? undefined : await resourcesForAgents(auth.orgId).catch(() => undefined);
+    const [links, memory] = operation === "chat" ? [undefined, undefined] : await Promise.all([
+      resourcesForAgents(auth.orgId).catch(() => undefined),
+      ["recommendations", "plan", "report", "diagnose", "hypotheses"].includes(operation) ? memoryForAgents(auth.orgId, c).catch(() => undefined) : Promise.resolve(undefined),
+    ]);
+    if (memory) progress.analysis("Checking your organisation's history", memory.split("\n").map((l) => l.split(":")[0]).join(" · "));
+    const references = [links, memory ? `ORGANISATION HISTORY (past cases and measured outcomes):\n${memory}` : undefined].filter(Boolean).join("\n\n") || undefined;
     if (references) progress.step("Knowledge base", `${references.split("\n").length} organization reference link(s) shared with the agents`);
     const result = await fn({ gateway, call: { organizationId: auth.orgId, userId: auth.uid, caseId: c.id }, progress, ...(references ? { references } : {}) });
     await progress.finish("succeeded");
@@ -1033,5 +1039,38 @@ export async function addDataset(auth: AuthContext, caseId: string, input: z.inf
 export async function removeDataset(auth: AuthContext, caseId: string, datasetId: string) {
   const updated = await mutate(auth, caseId, (c) => ({ ...c, datasets: (c.datasets ?? []).filter((d) => d.id !== datasetId) }));
   await audit(auth.orgId, auth.uid, "case.dataset.remove", caseId, { dataset: datasetId });
+  return withDerived(updated);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Outcomes                                                                    */
+/* -------------------------------------------------------------------------- */
+
+export const OutcomeInputSchema = z.object({
+  status: z.enum(["planned", "live", "completed", "dropped"]),
+  actualLiftPct: z.number().min(-100).max(1000).optional(),
+  notes: z.string().trim().max(1000).optional(),
+});
+
+/** Record what a recommendation actually delivered (feeds calibration of future forecasts). */
+export async function recordOutcome(auth: AuthContext, caseId: string, recommendationId: string, input: z.infer<typeof OutcomeInputSchema>) {
+  const c = await loadCase(auth, caseId);
+  const r = c.recommendations.find((x) => x.id === recommendationId);
+  if (!r) throw notFound("Recommendation");
+  if (input.status === "completed" && input.actualLiftPct === undefined) throw badRequest("Enter the measured lift to complete an initiative.");
+  const outcome = {
+    status: input.status,
+    ...(input.actualLiftPct !== undefined ? { actualLiftPct: input.actualLiftPct } : {}),
+    ...(r.expectedLiftPct !== undefined ? { forecastLiftPct: r.expectedLiftPct } : {}),
+    ...(input.notes ? { notes: input.notes } : {}),
+    recordedAt: now(),
+    recordedBy: auth.uid,
+  };
+  const updated = await mutate(auth, caseId, (cur) => ({
+    ...cur,
+    recommendations: cur.recommendations.map((x) => (x.id === recommendationId ? { ...x, outcome } : x)),
+    transcript: [...cur.transcript, entry("user", "decision", `Outcome for "${r.title}": ${input.status}${input.actualLiftPct !== undefined ? `, measured lift ${input.actualLiftPct}% (forecast ${r.expectedLiftPct ?? "n/a"}%)` : ""}`)].slice(-400),
+  }));
+  await audit(auth.orgId, auth.uid, "case.outcome", caseId, { recommendation: recommendationId, status: input.status });
   return withDerived(updated);
 }

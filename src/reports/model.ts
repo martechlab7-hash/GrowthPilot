@@ -412,3 +412,23 @@ function zip3(a: string[], b: string[], c: string[]): string[][] {
   const n = Math.max(a.length, b.length, c.length);
   return Array.from({ length: n }, (_, i) => [a[i] ?? "", b[i] ?? "", c[i] ?? ""]);
 }
+
+/** Report cuts for different readers. Same content, different selection. */
+export const AUDIENCES = {
+  full: { label: "Full strategy report", sections: null },
+  executive: { label: "CMO one-pager", sections: ["executive", "findings", "hypotheses", "recommendations", "economics", "roadmap", "next"] },
+  crm: { label: "CRM & activation playbook", sections: ["executive", "customer", "journey", "activation", "martech", "measurement", "experiments", "next"] },
+  data: { label: "Data & measurement spec", sections: ["data", "technology", "martech", "hypotheses", "measurement", "experiments", "assumptions", "legend"] },
+} as const;
+export type Audience = keyof typeof AUDIENCES;
+
+export function forAudience(m: ReportModel, audience: Audience): ReportModel {
+  const cut = AUDIENCES[audience];
+  if (!cut.sections) return m;
+  const keep = new Set<string>(cut.sections);
+  let n = 0;
+  const sections = m.sections
+    .filter((s) => keep.has(s.id))
+    .map((s) => (/^\d+\.\s/.test(s.title) ? { ...s, title: `${++n}. ${s.title.replace(/^\d+\.\s*/, "")}` } : s));
+  return { ...m, subtitle: `${cut.label} · ${m.subtitle}`, sections };
+}

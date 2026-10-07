@@ -1,8 +1,11 @@
 "use client";
 
+import { platformFor } from "@/reports/journeyExport";
+import { apiDownload } from "@/lib/client/api";
 import { ExperimentDesigner } from "./ExperimentDesigner";
 import { Flowchart, toFlowSteps } from "@/components/charts/Flowchart";
-import { Route } from "lucide-react";
+import { useState } from "react";
+import { Download, Route } from "lucide-react";
 import type { ActivationJourney } from "@/domain/types";
 import { Badge, Button, Card, CardBody, CardHeader, EmptyState } from "@/components/ui";
 import type { CaseTabProps } from "./Workspace";
@@ -16,6 +19,30 @@ function PlanEmpty({ view, ctl, canManage, go, what }: CaseTabProps & { what: st
       description={hasRecs ? "The Activation and Measurement agents turn the recommendations into journeys, KPIs and experiments." : "Build recommendations first."}
       action={hasRecs ? canManage && <Button loading={ctl.busy === "Designing plan"} onClick={() => ctl.run("Designing plan", "/plan")}>Design activation & measurement</Button> : <Button onClick={() => go("recommendations")}>Go to recommendations</Button>}
     />
+  );
+}
+
+/** Download a build spec for the client's own engagement platform. */
+function JourneyExport({ caseId, journeyId, platform }: { caseId: string; journeyId: string; platform: string }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const get = async (format: string) => {
+    setBusy(format);
+    setErr(null);
+    try { await apiDownload(`/api/cases/${caseId}/journeys/${journeyId}/export?format=${format}`); } catch (e) { setErr((e as Error).message); } finally { setBusy(null); }
+  };
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <div className="flex flex-wrap justify-end gap-1.5">
+        {(["md", "json", "csv"] as const).map((f) => (
+          <Button key={f} size="sm" variant="outline" loading={busy === f} onClick={() => void get(f)}>
+            <Download className="h-3.5 w-3.5" /> {{ md: "Build brief", json: "JSON spec", csv: "Steps CSV" }[f]}
+          </Button>
+        ))}
+      </div>
+      <span className="text-[11px] text-subtle">Mapped to {platform}</span>
+      {err && <span className="text-xs text-red-600">{err}</span>}
+    </div>
   );
 }
 
@@ -49,7 +76,7 @@ export function ActivationView(props: CaseTabProps) {
       </Card>
       {c.journeys.map((j) => (
         <Card key={j.id}>
-          <CardHeader title={j.name} description={j.objective} />
+          <CardHeader title={j.name} description={j.objective} action={<JourneyExport caseId={c.id} journeyId={j.id} platform={platformFor(c).name} />} />
           <CardBody className="grid gap-6 md:grid-cols-[minmax(0,1fr)_260px]">
             <JourneyFlow j={j} />
             <dl className="space-y-3 text-sm">

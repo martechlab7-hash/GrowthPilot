@@ -1,5 +1,6 @@
 "use client";
 
+import { OutcomeTracker } from "./OutcomeTracker";
 import { useState } from "react";
 import { Lock, Target } from "lucide-react";
 import type { Recommendation } from "@/domain/types";
@@ -89,6 +90,7 @@ function RecommendationCard({ r, index, ctl, canManage, hypotheses }: { r: Recom
             {r.assumptions.map((a) => <div key={a} className="flex items-start gap-2 text-sm"><KindBadge kind="assumption" /> {a}</div>)}
           </div>
         </details>
+        <OutcomeTracker r={r} ctl={ctl} canEdit={canManage} />
         {canManage && (editing ? (
           <div className="grid gap-3 rounded-lg border border-line p-3 sm:grid-cols-6 sm:items-end">
             {([["impactScore", "Impact (1–5)", 1, 5, 1], ["effortScore", "Effort (1–5)", 1, 5, 1], ["strategicFit", "Fit (1–5)", 1, 5, 1], ["confidence", "Confidence (0–1)", 0, 1, 0.05], ["timeToValueWeeks", "Weeks to value", 0, 260, 1]] as const).map(([k, label, min, max, step]) => (

@@ -383,6 +383,17 @@ export const RecommendationSchema = z.object({
   priority: PrioritySchema,
   evidence: z.array(EvidenceItemSchema),
   assumptions: z.array(z.string()),
+  /** What actually happened when it ran: feeds the organisation's track record. */
+  outcome: z
+    .object({
+      status: z.enum(["planned", "live", "completed", "dropped"]),
+      actualLiftPct: z.number().min(-100).max(1000).optional(),
+      forecastLiftPct: z.number().optional(),
+      notes: z.string().max(1000).optional(),
+      recordedAt: z.string(),
+      recordedBy: z.string(),
+    })
+    .optional(),
 });
 export type Recommendation = z.infer<typeof RecommendationSchema>;
 

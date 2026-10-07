@@ -191,6 +191,23 @@ describe("consulting lifecycle", () => {
     // The rejected hypothesis was passed to the agent as rejected, with the user's reason.
     expect(prompts.at(-1)).toContain("Our fares did not change");
 
+    // Closing the loop: a completed outcome feeds the organisation's track record.
+    {
+      const memory = await import("./memory");
+      const rec = view.case.recommendations[0]!;
+      await expect(svc.recordOutcome(auth, created.id, rec.id, { status: "completed" })).rejects.toMatchObject({ status: 400 });
+      view = await svc.recordOutcome(auth, created.id, rec.id, { status: "completed", actualLiftPct: 4, notes: "Holdout test, 8 weeks" });
+      expect(view.case.recommendations[0]!.outcome).toMatchObject({ status: "completed", actualLiftPct: 4, forecastLiftPct: 8 });
+      const record = await memory.trackRecord("org1");
+      expect(record).toMatchObject({ completed: 1, ratio: 0.5, hitRate: 0 });
+      expect((await memory.trackRecord("org2")).completed).toBe(0);
+      // A new, similar case finds this one as precedent.
+      const twin = await svc.createCase(auth, { name: "Airline repeat bookings", problemStatement: "Repeat bookings for our airline keep declining among frequent flyers.", currency: "INR" });
+      const similar = await memory.similarCases("org1", twin);
+      expect(similar[0]?.id).toBe(created.id);
+      expect(similar[0]?.recommendations[0]?.outcome).toContain("delivered 4% lift");
+      await svc.deleteCase(auth, twin.id);
+    }
     view = await svc.generatePlan(auth, created.id);
     expect(view.case.journeys).toHaveLength(1);
     expect(view.case.measurement?.northStar).toBe("Repeat booking rate");
