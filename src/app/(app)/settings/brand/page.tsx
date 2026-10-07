@@ -92,7 +92,7 @@ function BrandForm({ initial, canManage }: { initial: BrandProfile; canManage: b
 
   return (
     <form
-      className="grid gap-6 lg:grid-cols-[1fr_380px]"
+      className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]"
       onSubmit={async (e) => {
         e.preventDefault();
         setBusy(true);

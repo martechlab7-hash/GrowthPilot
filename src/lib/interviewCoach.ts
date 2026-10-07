@@ -67,7 +67,7 @@ export function coachLine(i: CoachInput): CoachLine {
   if (i.remaining === 0) {
     return { headline: `That's everything, ${name}!`, detail: "I have what I need. Let's run the diagnosis.", mood: "delighted" };
   }
-  if (i.answered === 0) {
+  if (i.answered === 0 && !i.ready) {
     return {
       headline: `Hi ${name}! Let's crack this together.`,
       detail: `About ${total} quick ${plural(total, "question", "questions")}, most just a tap. Pick "Other" whenever the options don't fit.`,

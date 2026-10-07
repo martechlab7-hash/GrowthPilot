@@ -70,7 +70,7 @@ export function ActivationView(props: CaseTabProps) {
       {c.journeys.map((j) => (
         <Card key={j.id}>
           <CardHeader title={j.name} description={j.objective} />
-          <CardBody className="grid gap-6 md:grid-cols-[1fr_260px]">
+          <CardBody className="grid gap-6 md:grid-cols-[minmax(0,1fr)_260px]">
             <JourneyFlow j={j} />
             <dl className="space-y-3 text-sm">
               <div><dt className="text-xs font-semibold uppercase tracking-wide text-muted">Audience</dt><dd>{j.audience}</dd></div>

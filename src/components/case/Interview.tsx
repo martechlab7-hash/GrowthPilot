@@ -37,8 +37,8 @@ export function Interview({ view, ctl, canContribute, canManage, go }: CaseTabPr
   };
 
   return (
-    <div className="grid gap-5 xl:grid-cols-[1fr_320px]">
-      <div className="space-y-4">
+    <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="min-w-0 space-y-4">
         {coach && (
           <Card className="overflow-hidden">
             <div className="flex items-center gap-4 bg-gradient-to-r from-brand-50 via-white to-violet-50 px-5 py-4">
@@ -101,9 +101,9 @@ export function Interview({ view, ctl, canContribute, canManage, go }: CaseTabPr
             <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-subtle">Up next</div>
             <ul className="mt-1.5 space-y-1 text-sm text-muted">
               {upNext.map((q, i) => (
-                <li key={q.id} className="flex items-center gap-2 truncate">
+                <li key={q.id} className="flex min-w-0 items-center gap-2">
                   <span className="tabular-nums text-subtle">{progress.answered + 2 + i}.</span>
-                  <span className="truncate">{q.prompt}</span>
+                  <span className="min-w-0 truncate">{q.prompt}</span>
                 </li>
               ))}
             </ul>
@@ -243,7 +243,7 @@ function QuestionCard({ q, number, disabled, busy, onSubmit }: { q: ScoredQuesti
             {number}
           </span>
           <div className="min-w-0 flex-1">
-            <p className="text-lg font-semibold leading-snug tracking-tight">{q.prompt}</p>
+            <p className="text-lg font-semibold leading-snug tracking-tight [overflow-wrap:anywhere]">{q.prompt}</p>
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
               <Badge>{q.category}</Badge>
               {q.origin === "ai" && <Badge tone="violet">AI follow-up</Badge>}

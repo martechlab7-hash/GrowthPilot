@@ -61,16 +61,16 @@ export function ActivityPanel({ caseId, busy }: { caseId: string; busy: string |
         </button>
       </div>
       {expanded && activity && (
-        <ol className="space-y-2 border-t border-line px-4 py-3 text-sm">
+        <ol className="max-h-80 space-y-2 overflow-y-auto border-t border-line px-4 py-3 text-sm">
           {activity.steps.map((s, i) => (
             <li key={i} className="flex gap-2.5">
               <span className="mt-0.5 shrink-0">
                 {s.status === "running" && status === "running" ? <Loader2 className="h-3.5 w-3.5 animate-spin text-brand-600" /> : s.status === "error" ? <AlertCircle className="h-3.5 w-3.5 text-red-600" /> : <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />}
               </span>
               <span className="min-w-0">
-                <span className={cn(s.status === "error" && "text-red-700")}>{s.label}</span>
+                <span className={cn("[overflow-wrap:anywhere]", s.status === "error" && "text-red-700")}>{s.label}</span>
                 <span className="ml-2 text-xs text-muted">{new Date(s.at).toLocaleTimeString()}</span>
-                {s.detail && <span className="block break-words text-xs text-muted">{s.detail}</span>}
+                {s.detail && <span className="block text-xs text-muted [overflow-wrap:anywhere]">{s.detail}</span>}
               </span>
             </li>
           ))}
