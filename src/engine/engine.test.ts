@@ -129,3 +129,15 @@ describe("martech vendors", () => {
     expect(tech.rationale).toContain("Braze");
   });
 });
+
+describe("questions to ready", () => {
+  it("is a small, honest target that reaches zero once ready", async () => {
+    const { questionsToReady, readiness: rd } = await import("./interview");
+    const { emptyContext: ec } = await import("./context");
+    const c = { context: ec(), problemTypes: ["retention"] as never, industryId: "airline", adaptiveQuestions: [] };
+    const n = questionsToReady(c);
+    expect(n).toBeGreaterThan(3);
+    expect(n).toBeLessThan(30);
+    expect(rd(c).ready).toBe(false);
+  });
+});
