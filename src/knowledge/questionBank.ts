@@ -17,6 +17,8 @@ export interface BankQuestion extends Question {
   };
   /** Multiplier applied when the case's problem types match. */
   boostFor?: ProblemType[];
+  /** Case-type wording: the first variant matching the case's problem types replaces prompt/why/placeholder. */
+  variants?: { problemTypes: ProblemType[]; prompt: string; why?: string; placeholder?: string }[];
 }
 
 const q = (b: Omit<BankQuestion, "critical" | "origin"> & { critical?: boolean }): BankQuestion => ({
@@ -282,6 +284,54 @@ export const QUESTION_BANK: BankQuestion[] = [
     input: "select", options: ["Several times a week", "About weekly", "A few times a month", "Monthly or less", "Varies / not tracked"],
     businessImpact: 3, diagnosticValue: 4, decisionRelevance: 3,
     when: { problemTypes: ["retention", "engagement", "crm", "winback", "loyalty"] },
+  }),
+  q({
+    id: "mkt-links", key: "marketing.website_links", stage: "activation", category: "MARKETING",
+    prompt: "Share links to the pages that matter for this problem.",
+    why: "I read the pages myself (headline, calls to action, forms, offers, trust signals) instead of guessing what your customers see.",
+    input: "links",
+    businessImpact: 4, diagnosticValue: 4, decisionRelevance: 4,
+    boostFor: ["conversion", "paid_media", "seo_content"],
+    when: { problemTypes: ["conversion", "acquisition", "paid_media", "seo_content", "app_growth", "activation", "brand", "pricing", "pipeline", "monetization"] },
+    variants: [
+      { problemTypes: ["conversion"], prompt: "Paste the links where {customers} drop off: landing page, product page, pricing or checkout.", why: "Conversion problems are usually visible on the page: unclear value, weak calls to action, long forms or missing trust signals. I'll read each page." },
+      { problemTypes: ["paid_media", "acquisition"], prompt: "Paste the landing pages your ads and campaigns send traffic to.", why: "Paid traffic is only as good as the page it lands on. I'll check message match, calls to action and form friction." },
+      { problemTypes: ["seo_content"], prompt: "Paste a few of the pages you want to rank: a key landing page, a category page and a typical article.", why: "I'll read titles, descriptions, headings and content depth for each page." },
+      { problemTypes: ["app_growth", "activation"], prompt: "Paste your app store listing, sign-up page or onboarding help page.", why: "The first screens a new {customer} sees set activation. I'll read what they promise and ask for." },
+      { problemTypes: ["pricing", "monetization"], prompt: "Paste your pricing or plans page and any upgrade page.", why: "I'll read how plans, anchors and upgrade prompts are presented." },
+      { problemTypes: ["pipeline"], prompt: "Paste your demo or contact page and the main landing pages that generate leads.", why: "Lead quality and volume depend on what the page promises and how much the form asks for." },
+      { problemTypes: ["brand"], prompt: "Paste your homepage and a page that best represents the brand.", why: "I'll read the positioning, proof points and tone as a customer would." },
+    ],
+  }),
+  q({
+    id: "mkt-screenshots", key: "marketing.comm_screenshots", stage: "activation", category: "MARKETING",
+    prompt: "Upload screenshots of the messages {customers} receive today (email, SMS, WhatsApp, push or in-app).",
+    why: "Seeing the actual message tells me more than a description: offer, call to action, personalisation, tone and clutter.",
+    input: "images",
+    businessImpact: 3, diagnosticValue: 4, decisionRelevance: 4,
+    boostFor: ["crm", "personalization", "winback"],
+    when: { problemTypes: ["crm", "retention", "engagement", "winback", "loyalty", "personalization", "activation", "advocacy", "app_growth"], requiresKnown: ["marketing.channels"] },
+    variants: [
+      { problemTypes: ["winback"], prompt: "Upload screenshots of what a lapsed {customer} receives: your win-back or 'we miss you' messages.", why: "Win-back depends on the offer, the reason to return and the tone. I'll review each message." },
+      { problemTypes: ["activation", "app_growth"], prompt: "Upload screenshots of the welcome and onboarding messages a new {customer} receives.", why: "Onboarding messages decide whether a sign-up reaches the first moment of value. I'll check each one's job and call to action." },
+      { problemTypes: ["loyalty", "advocacy"], prompt: "Upload screenshots of your loyalty, rewards or referral messages.", why: "I'll check whether the reward is clear, the next milestone is visible and the call to action is easy." },
+      { problemTypes: ["personalization", "crm"], prompt: "Upload screenshots of two or three typical campaign messages, ideally one batch and one triggered.", why: "I'll check how personalised they really are and whether the content matches the moment." },
+    ],
+  }),
+  q({
+    id: "mkt-cadence", key: "marketing.cadence", stage: "activation", category: "MARKETING",
+    prompt: "Map your communication calendar: what goes out on each channel, how often and when.",
+    why: "Cadence and timing explain fatigue, missed moments and channels competing with each other. I'll analyse the load per day and per channel.",
+    input: "cadence",
+    businessImpact: 4, diagnosticValue: 4, decisionRelevance: 4,
+    boostFor: ["crm", "engagement", "winback"],
+    when: { problemTypes: ["crm", "retention", "engagement", "winback", "loyalty", "personalization", "activation", "app_growth"], requiresKnown: ["marketing.channels"] },
+    variants: [
+      { problemTypes: ["activation", "app_growth"], prompt: "What does a new {customer} receive in the first two weeks? Add each message with its channel, timing and trigger." },
+      { problemTypes: ["winback"], prompt: "What does a {customer} receive once they start to lapse? Add each message with its channel, timing and trigger." },
+      { problemTypes: ["engagement"], prompt: "What does an active {customer} receive in a typical week? Add each message with its channel, frequency and send time." },
+      { problemTypes: ["retention", "loyalty"], prompt: "What does a typical {customer} receive between {purchase}s? Add each message with its channel, frequency and send time." },
+    ],
   }),
   q({
     id: "mkt-personalisation", key: "marketing.personalization_level", stage: "activation", category: "MARKETING",

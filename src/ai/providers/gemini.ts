@@ -24,7 +24,10 @@ export const geminiAdapter: ProviderAdapter = {
         systemInstruction: { parts: [{ text: req.system }] },
         contents: req.messages.map((m) => ({
           role: m.role === "assistant" ? "model" : "user",
-          parts: [{ text: m.content }],
+          parts: [
+            ...(m.images ?? []).map((i) => ({ inlineData: { mimeType: i.mediaType, data: i.data } })),
+            { text: m.content },
+          ],
         })),
         generationConfig: {
           maxOutputTokens: thinking ? req.maxTokens + 16_384 : req.maxTokens,

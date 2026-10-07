@@ -70,3 +70,37 @@ describe("provider input validation", () => {
     expect(parsed.models?.reasoning).toBe("google/gemini-2.5-flash");
   });
 });
+
+describe("images (vision)", () => {
+  const withImage = (model: string) => ({ ...req(model), messages: [{ role: "user" as const, content: "review", images: [{ mediaType: "image/jpeg" as const, data: "AAAA" }] }] });
+
+  it("sends OpenAI-compatible image_url parts", async () => {
+    const fetch = mockFetch({ choices: [{ finish_reason: "stop", message: { content: '{"a":1}' } }] });
+    await openrouterAdapter.complete(withImage("google/gemini-2.5-flash"), creds);
+    const sent = JSON.parse((fetch.mock.calls[0] as unknown as [string, { body: string }])[1].body);
+    expect(sent.messages[1].content).toEqual([{ type: "text", text: "review" }, { type: "image_url", image_url: { url: "data:image/jpeg;base64,AAAA" } }]);
+  });
+
+  it("sends Gemini inlineData parts", async () => {
+    const fetch = mockFetch({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: '{"a":1}' }] } }] });
+    await geminiAdapter.complete(withImage("gemini-2.5-flash"), creds);
+    const sent = JSON.parse((fetch.mock.calls[0] as unknown as [string, { body: string }])[1].body);
+    expect(sent.contents[0].parts).toEqual([{ inlineData: { mimeType: "image/jpeg", data: "AAAA" } }, { text: "review" }]);
+  });
+
+  it("sends Anthropic base64 image blocks", async () => {
+    const { anthropicAdapter } = await import("./anthropic");
+    const fetch = mockFetch({ content: [{ type: "text", text: '{"a":1}' }] });
+    await anthropicAdapter.complete(withImage("claude-haiku-4-5"), creds);
+    const sent = JSON.parse((fetch.mock.calls[0] as unknown as [string, { body: string }])[1].body);
+    expect(sent.messages[0].content[0]).toEqual({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: "AAAA" } });
+    expect(sent.messages[0].content[1]).toEqual({ type: "text", text: "review" });
+  });
+
+  it("keeps plain string content when there are no images", async () => {
+    const fetch = mockFetch({ choices: [{ finish_reason: "stop", message: { content: '{"a":1}' } }] });
+    await openaiAdapter.complete(req("gpt-4.1"), creds);
+    const sent = JSON.parse((fetch.mock.calls[0] as unknown as [string, { body: string }])[1].body);
+    expect(sent.messages[1]).toEqual({ role: "user", content: "p" });
+  });
+});

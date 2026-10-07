@@ -72,8 +72,10 @@ function contextualize(q: Question, c: InterviewCase): Question & { suggested?: 
   const plan = c.questionPlan?.items[q.id];
   const metric = c.questionPlan?.metric || (c.problemStatement ? metricFromStatement(c.problemStatement) : undefined);
   const v = vocabularyFor(c.industryId);
-  let prompt = plan?.prompt || fillPlaceholders(q.prompt, v, metric);
-  const why = plan?.why || fillPlaceholders(q.why, v, metric);
+  const variant = (q as BankQuestion).variants?.find((x) => x.problemTypes.some((t) => c.problemTypes.includes(t)));
+  let prompt = plan?.prompt || fillPlaceholders(variant?.prompt ?? q.prompt, v, metric);
+  const why = plan?.why || fillPlaceholders(variant?.why ?? q.why, v, metric);
+  const placeholder = variant?.placeholder ?? q.placeholder;
   const f = c.context.fields[q.key];
   const inferred = f && f.kind !== "fact" && !c.context.unknownKeys.includes(q.key) ? f.value : undefined;
   let suggested: ScoredQuestion["suggested"];
@@ -84,13 +86,27 @@ function contextualize(q: Question, c: InterviewCase): Question & { suggested?: 
       prompt = `${prompt} I think it's ${vals.join(", ")}. Is that right?`;
     }
   }
-  return { ...q, prompt, why, ...(suggested !== undefined ? { suggested } : {}) };
+  if (q.input === "cadence" && suggested === undefined) {
+    // Start the calendar with one row per active messaging channel.
+    const channels = c.context.fields["marketing.channels"]?.value;
+    const rows = (Array.isArray(channels) ? channels : []).filter((ch) => MESSAGING.test(ch)).slice(0, 5);
+    if (rows.length) suggested = rows.map((ch) => `${ch} | - | Weekly | Varies | Scheduled`);
+  }
+  return { ...stripVariants(q), prompt, why, ...(placeholder ? { placeholder } : {}), ...(suggested !== undefined ? { suggested } : {}) };
 }
+
+const MESSAGING = /email|sms|whatsapp|push|in-app|rcs/i;
 
 function stripRules(q: Question | BankQuestion): Question {
   const { when: _w, boostFor: _b, ...rest } = q as BankQuestion;
   void _w;
   void _b;
+  return rest;
+}
+
+function stripVariants(q: Question): Question {
+  const { variants: _v, ...rest } = q as BankQuestion;
+  void _v;
   return rest;
 }
 

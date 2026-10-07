@@ -21,7 +21,17 @@ export const anthropicAdapter: ProviderAdapter = {
         system: req.json
           ? `${req.system}\n\nRespond with a single valid JSON object only. No prose, no markdown fences.`
           : req.system,
-        messages: req.messages,
+        messages: req.messages.map((m) =>
+          m.images?.length
+            ? {
+                role: m.role,
+                content: [
+                  ...m.images.map((i) => ({ type: "image", source: { type: "base64", media_type: i.mediaType, data: i.data } })),
+                  { type: "text", text: m.content },
+                ],
+              }
+            : { role: m.role, content: m.content },
+        ),
       },
       req.timeoutMs,
     )) as AnthropicResponse;

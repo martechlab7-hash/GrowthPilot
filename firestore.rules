@@ -56,6 +56,8 @@ service cloud.firestore {
     match /ai_usage/{id} { allow read, write: if false; }
     match /usage_counters/{id} { allow read, write: if false; }
     match /audit_logs/{id} { allow read, write: if false; }
+    // Communication screenshots are served through the API after an access check.
+    match /case_assets/{id} { allow read, write: if false; }
 
     match /{document=**} { allow read, write: if false; }
   }

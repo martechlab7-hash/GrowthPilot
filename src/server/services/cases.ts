@@ -42,6 +42,8 @@ import { parseDelimited } from "@/lib/data/csv";
 import { detectPiiColumns, maskColumns, maskFreeText } from "@/lib/data/pii";
 import { profileTable } from "@/lib/data/profile";
 import { analyzeTable } from "@/lib/data/analyze";
+import { MAX_LINKS, normalizeUrl } from "@/lib/web/page";
+import { analyzeCadence, formatCadenceRow, parseCadenceRow } from "@/engine/cadence";
 import { getStore } from "../store";
 import { audit } from "./org";
 import { gatewayFor, secondOpinion } from "./providers";
@@ -111,7 +113,7 @@ export const ReviewSchema = z.object({
 /* Helpers                                                                     */
 /* -------------------------------------------------------------------------- */
 
-function entry(role: TranscriptEntry["role"], kind: TranscriptEntry["kind"], text: string, questionId?: string): TranscriptEntry {
+export function entry(role: TranscriptEntry["role"], kind: TranscriptEntry["kind"], text: string, questionId?: string): TranscriptEntry {
   return { id: id("msg"), role, kind, text, ...(questionId ? { questionId } : {}), createdAt: now() };
 }
 
@@ -128,7 +130,7 @@ export function summarize(c: Case): CaseSummary {
   };
 }
 
-async function loadCase(auth: AuthContext, caseId: string): Promise<Case> {
+export async function loadCase(auth: AuthContext, caseId: string): Promise<Case> {
   const c = await cases().get(caseId);
   // Tenant isolation: a case from another organization is indistinguishable from a missing one.
   if (!c || c.organizationId !== auth.orgId) throw notFound("Case");
@@ -136,7 +138,7 @@ async function loadCase(auth: AuthContext, caseId: string): Promise<Case> {
 }
 
 /** Atomic mutation scoped to the caller's organization. */
-async function mutate(auth: AuthContext, caseId: string, fn: (c: Case) => Case): Promise<Case> {
+export async function mutate(auth: AuthContext, caseId: string, fn: (c: Case) => Case): Promise<Case> {
   let missing = false;
   const out = await cases().transact(caseId, (current) => {
     if (!current || current.organizationId !== auth.orgId) {
@@ -182,7 +184,7 @@ async function orgPlan(orgId: string) {
  * Run an AI operation with quota checks. On failure the case is flagged with a
  * resumable pending operation — user work is never lost (spec §74).
  */
-async function withAi<T>(
+export async function withAi<T>(
   auth: AuthContext,
   c: Case,
   operation: string,
@@ -436,7 +438,7 @@ export async function updateCase(auth: AuthContext, caseId: string, input: z.inf
 export async function deleteCase(auth: AuthContext, caseId: string) {
   await loadCase(auth, caseId);
   const store = getStore();
-  for (const name of ["case_versions", "decision_logs"] as const) {
+  for (const name of ["case_versions", "decision_logs", "case_assets"] as const) {
     const col = store.collection<{ id: string; caseId: string }>(name);
     const rows = await col.query({ where: [["organizationId", "==", auth.orgId], ["caseId", "==", caseId]] });
     for (const r of rows) await col.delete(r.id);
@@ -469,6 +471,27 @@ function validateAnswer(q: Question, value: FieldValue): FieldValue {
     }
     case "boolean":
       return typeof value === "boolean" ? value : String(value) === "true";
+    case "links": {
+      const raw = (Array.isArray(value) ? value : String(value).split(/[\s,]+/)).map((v) => v.trim()).filter(Boolean);
+      const urls = [...new Set(raw.map((v) => normalizeUrl(v)))];
+      if (!raw.length) throw badRequest(`Add at least one link for "${q.prompt}"`);
+      if (urls.some((u) => !u)) throw badRequest("Links must be public web addresses (http or https).");
+      if (urls.length > MAX_LINKS) throw badRequest(`Share up to ${MAX_LINKS} links.`);
+      return urls as string[];
+    }
+    case "images": {
+      const ids = (Array.isArray(value) ? value : [String(value)]).filter((v) => /^img_[a-z0-9-]{6,20}$/.test(v));
+      if (!ids.length) throw badRequest("Upload at least one screenshot, or choose \"I don't know\".");
+      return [...new Set(ids)].slice(0, 6);
+    }
+    case "cadence": {
+      const rows = (Array.isArray(value) ? value : [String(value)]).map((v) => v.trim()).filter(Boolean);
+      if (!rows.length) throw badRequest("Add at least one message to the calendar.");
+      if (rows.length > 25) throw badRequest("Add up to 25 messages.");
+      const parsed = rows.map(parseCadenceRow);
+      if (parsed.some((r) => !r)) throw badRequest("Each message needs a channel and a frequency.");
+      return parsed.map((r) => formatCadenceRow(r!).slice(0, 300));
+    }
     default: {
       const s = String(value).trim();
       if (!s) throw badRequest(`"${q.prompt}" needs an answer`);
@@ -488,12 +511,18 @@ export function answerWithOther(q: Question, value: FieldValue | undefined, othe
 
 export async function answerQuestions(auth: AuthContext, caseId: string, input: z.infer<typeof AnswerSchema>) {
   const current = await loadCase(auth, caseId);
+  const uploaded = new Set((current.comms?.screenshots ?? []).map((s) => s.id));
   const resolved = input.answers.map((a) => {
     const q = findQuestion(current, a.questionId);
     if (!q) throw badRequest(`Unknown question ${a.questionId}`);
     const other = a.other?.trim() ? a.other.trim() : undefined;
     if (!a.unknown && a.value === undefined && !other) throw badRequest(`Answer or mark "${q.prompt}" as unknown`);
-    return { a, q, value: a.unknown ? undefined : answerWithOther(q, a.value, other) };
+    let value = a.unknown ? undefined : answerWithOther(q, a.value, other);
+    if (q.input === "images" && Array.isArray(value)) {
+      value = value.filter((v) => uploaded.has(v));
+      if (!value.length) throw badRequest("Those screenshots were not found. Upload them again.");
+    }
+    return { a, q, value };
   });
 
   const updated = await mutate(auth, caseId, (c) => {
@@ -508,8 +537,18 @@ export async function answerQuestions(auth: AuthContext, caseId: string, input: 
         transcript.push(entry("user", "answer", "I don't know / not available", q.id));
       } else {
         ctx = setField(ctx, { key: q.key, value, questionId: q.id, note: a.note, by: auth.uid });
-        transcript.push(entry("user", "answer", Array.isArray(value) ? value.join(", ") : String(value), q.id));
+        const said =
+          q.input === "images" && Array.isArray(value) ? `Shared ${value.length} message screenshot${value.length === 1 ? "" : "s"}`
+          : q.input === "cadence" && Array.isArray(value) ? `Shared a contact calendar with ${value.length} message${value.length === 1 ? "" : "s"}: ${value.join("; ")}`
+          : Array.isArray(value) ? value.join(", ") : String(value);
+        transcript.push(entry("user", "answer", said, q.id));
         if (q.key === "business.industry" && typeof value === "string") industryId = industryIdFromName(value) ?? industryId;
+        if (q.input === "cadence" && Array.isArray(value) && !isKnown(ctx, "marketing.contact_frequency")) {
+          // Offer the calendar's implied frequency for confirmation rather than asking from scratch.
+          const perWeek = analyzeCadence(value).perWeek;
+          const freq = perWeek >= 2 ? "Several times a week" : perWeek >= 0.75 ? "About weekly" : perWeek >= 0.4 ? "A few times a month" : "Monthly or less";
+          ctx = setField(ctx, { key: "marketing.contact_frequency", value: freq, source: "ai_inference", kind: "inference", by: auth.uid });
+        }
       }
       asked.add(q.id);
     }
@@ -532,6 +571,13 @@ export async function answerQuestions(auth: AuthContext, caseId: string, input: 
     return next;
   });
 
+  // Pilot reads linked pages and reviews screenshots in the background.
+  const kinds = { pages: resolved.some((r) => r.q.input === "links" && r.value !== undefined), screenshots: resolved.some((r) => r.q.input === "images" && r.value !== undefined) };
+  if (kinds.pages || kinds.screenshots) {
+    const { reviewAfterAnswer } = await import("./comms");
+    await reviewAfterAnswer(auth, caseId, kinds);
+  }
+
   // Free-text answers may contain additional facts; extract them after responding.
   const freeText = resolved
     .filter((r) => (r.q.input === "longtext" || r.a.other) && r.value !== undefined)
@@ -546,6 +592,7 @@ export async function answerQuestions(auth: AuthContext, caseId: string, input: 
     });
     if (process.env.VITEST) return interviewState(await loadCase(auth, caseId));
   }
+  if (process.env.VITEST && (kinds.pages || kinds.screenshots)) return interviewState(await loadCase(auth, caseId));
   return interviewState(updated);
 }
 

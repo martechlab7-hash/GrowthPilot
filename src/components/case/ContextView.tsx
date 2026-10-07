@@ -7,6 +7,7 @@ import { MaturityBars } from "@/components/charts";
 import { formatValue, humanizeKey } from "@/engine/context";
 import type { CaseTabProps } from "./Workspace";
 import { DataShare } from "./DataShare";
+import { CommsReview } from "./CommsReview";
 
 const STAGE_MAP: Record<"business" | "customer" | "data" | "technology", { title: string; stages: Stage[]; prefix: string }> = {
   business: { title: "Business & Performance", stages: ["business", "diagnosis", "economics"], prefix: "business" },
@@ -16,7 +17,7 @@ const STAGE_MAP: Record<"business" | "customer" | "data" | "technology", { title
 };
 
 /** Case context, with every value labelled fact / inference / assumption. */
-export function ContextView({ view, ctl, canContribute, stage }: CaseTabProps & { stage: keyof typeof STAGE_MAP }) {
+export function ContextView({ view, ctl, canContribute, canManage, go, stage }: CaseTabProps & { stage: keyof typeof STAGE_MAP }) {
   const cfg = STAGE_MAP[stage];
   const fields = Object.values(view.case.context.fields).filter((f) => cfg.stages.includes(f.stage)).sort((a, b) => a.key.localeCompare(b.key));
   const unknown = view.case.context.unknownKeys.filter((k) => cfg.stages.some((s) => k.startsWith(s === "diagnosis" ? "performance" : s === "activation" ? "marketing" : s)));
@@ -28,6 +29,7 @@ export function ContextView({ view, ctl, canContribute, stage }: CaseTabProps & 
   return (
     <div className="space-y-5">
       {stage === "data" && <DataShare view={view} ctl={ctl} canContribute={canContribute} canManage={false} go={() => {}} />}
+      {stage === "data" && <CommsReview view={view} ctl={ctl} canContribute={canContribute} canManage={canManage} go={go} />}
       <Card>
         <CardHeader title={cfg.title} description="Everything the AI knows about this area. Facts come from you; inferences and assumptions are labelled." />
         <CardBody>
@@ -42,7 +44,7 @@ export function ContextView({ view, ctl, canContribute, stage }: CaseTabProps & 
                 {fields.map((f) => (
                   <tr key={f.key} className="align-top">
                     <td className="py-2 pr-4 font-medium">{humanizeKey(f.key)}</td>
-                    <td className="py-2 pr-4">{formatValue(f.value)}{f.note && <div className="text-xs text-muted">Note: {f.note}</div>}</td>
+                    <td className="py-2 pr-4 [overflow-wrap:anywhere]">{f.key === "marketing.comm_screenshots" && Array.isArray(f.value) ? `${f.value.length} screenshot(s), reviewed on the Data tab` : Array.isArray(f.value) && f.key === "marketing.cadence" ? f.value.join("; ") : formatValue(f.value)}{f.note && <div className="text-xs text-muted">Note: {f.note}</div>}</td>
                     <td className="py-2 pr-4"><KindBadge kind={f.kind} /></td>
                     <td className="py-2 text-xs text-muted">{f.source.replace("_", " ")}</td>
                   </tr>

@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Bot, CheckCircle2, ChevronDown, CornerDownLeft, Database, HelpCircle, Loader2, PenLine, Sparkles, Target, Upload, User } from "lucide-react";
-import type { FieldValue, ScoredQuestion } from "@/domain/types";
+import { Bot, CheckCircle2, ChevronDown, CornerDownLeft, Database, Eye, HelpCircle, Loader2, PenLine, Sparkles, Target, Upload, User } from "lucide-react";
+import type { CommsScreenshot, FieldValue, ScoredQuestion } from "@/domain/types";
 import { Badge, Button, Card, CardBody, CardHeader, Chip, Input, Spinner, Textarea } from "@/components/ui";
 import { Owl } from "@/components/mascot";
 import { useAuth } from "@/lib/client/auth";
@@ -11,6 +11,7 @@ import { coachLine } from "@/lib/interviewCoach";
 import { firstName } from "@/lib/name";
 import type { CaseTabProps } from "./Workspace";
 import { PiiNotice } from "./DataShare";
+import { CadenceInput, LinksInput, RichInputHint, ScreenshotsInput } from "./RichInputs";
 
 type Submit = (v: FieldValue | undefined, unknown: boolean, note?: string, other?: string) => Promise<boolean>;
 
@@ -29,8 +30,12 @@ export function Interview({ view, ctl, canContribute, canManage, go }: CaseTabPr
     ? coachLine({ name: name === "there" ? "" : name, answered: progress.answered, remaining: ready ? progress.optional : progress.toReady, ready, critical: !!current?.critical, category: current?.category, last })
     : null;
 
-  // While the Interview Planner tailors questions in the background, refresh quietly.
-  const tailoring = iv?.tailoring === "pending";
+  // While the Interview Planner tailors questions, or pages and screenshots are being reviewed, refresh quietly.
+  const shotIds = c.context.fields["marketing.comm_screenshots"]?.value;
+  const sharedShots = (c.comms?.screenshots ?? []).filter((s) => Array.isArray(shotIds) && shotIds.includes(s.id));
+  const pages = c.comms?.pages ?? [];
+  const reviewing = [...pages, ...sharedShots].some((x) => x.status === "pending");
+  const tailoring = iv?.tailoring === "pending" || reviewing;
   const polls = useRef(0);
   const reload = ctl.reload;
   useEffect(() => {
@@ -112,6 +117,9 @@ export function Interview({ view, ctl, canContribute, canManage, go }: CaseTabPr
             disabled={!canContribute}
             busy={ctl.busy === `Saving ${current.id}`}
             onSubmit={submit}
+            caseId={c.id}
+            screenshots={c.comms?.screenshots ?? []}
+            channels={Array.isArray(c.context.fields["marketing.channels"]?.value) ? (c.context.fields["marketing.channels"]!.value as string[]) : []}
           />
         )}
 
@@ -150,6 +158,18 @@ export function Interview({ view, ctl, canContribute, canManage, go }: CaseTabPr
                   <Sparkles className="h-4 w-4" /> AI follow-up questions
                 </Button>
               )}
+            </CardBody>
+          </Card>
+        )}
+        {(pages.length > 0 || sharedShots.length > 0) && (
+          <Card>
+            <CardBody className="space-y-2.5 text-sm">
+              <div className="flex items-center gap-2 font-semibold"><Eye className="h-4 w-4 text-brand-600" /> What I&apos;m reviewing</div>
+              {pages.map((p) => <ReviewLine key={p.url} label={p.title || p.url.replace(/^https?:\/\/(www\.)?/, "")} status={p.status} />)}
+              {sharedShots.length > 0 && (
+                <ReviewLine label={`${sharedShots.length} message screenshot${sharedShots.length === 1 ? "" : "s"}`} status={sharedShots.some((s) => s.status === "pending") ? "pending" : sharedShots.some((s) => s.status === "reviewed") ? "reviewed" : "failed"} />
+              )}
+              <Button className="w-full" variant="outline" size="sm" onClick={() => go("data")}>See Pilot&apos;s review</Button>
             </CardBody>
           </Card>
         )}
@@ -206,10 +226,39 @@ function Conversation({ transcript }: { transcript: CaseTabProps["view"]["case"]
   );
 }
 
-function QuestionCard({ q, number, disabled, busy, onSubmit }: { q: ScoredQuestion; number: number; disabled: boolean; busy: boolean; onSubmit: Submit }) {
+const RICH = ["links", "images", "cadence"];
+
+const REVIEW_STATUS: Record<string, [string, string]> = {
+  pending: ["Reading…", "text-brand-600"],
+  read: ["Read", "text-emerald-600"],
+  reviewed: ["Reviewed", "text-emerald-600"],
+  failed: ["Couldn't read", "text-amber-600"],
+  blocked: ["Not public", "text-amber-600"],
+};
+
+function ReviewLine({ label, status }: { label: string; status: string }) {
+  const [text, tone] = REVIEW_STATUS[status] ?? [status, "text-muted"];
+  return (
+    <div className="flex min-w-0 items-center justify-between gap-2">
+      <span className="min-w-0 truncate text-muted">{label}</span>
+      <span className={cn("flex shrink-0 items-center gap-1 text-xs font-medium", tone)}>
+        {status === "pending" && <Loader2 className="h-3 w-3 animate-spin" />}{text}
+      </span>
+    </div>
+  );
+}
+
+function QuestionCard({ q, number, disabled, busy, onSubmit, caseId, screenshots, channels }: { q: ScoredQuestion; number: number; disabled: boolean; busy: boolean; onSubmit: Submit; caseId: string; screenshots: CommsScreenshot[]; channels: string[] }) {
   // Inferred answers arrive pre-selected so the user only has to confirm them.
   const [value, setValue] = useState<string>(() => (typeof q.suggested === "string" ? q.suggested : ""));
-  const [multi, setMulti] = useState<string[]>(() => (Array.isArray(q.suggested) ? q.suggested.map(String) : []));
+  const [multi, setMulti] = useState<string[]>(() =>
+    Array.isArray(q.suggested) ? q.suggested.map(String)
+    // Screenshots uploaded earlier (e.g. before leaving the page) are kept.
+    : q.input === "images" ? screenshots.map((s) => s.id)
+    : [],
+  );
+  const rich = RICH.includes(q.input);
+  const filled = rich ? multi.map((s) => s.trim()).filter(Boolean) : [];
   const [note, setNote] = useState("");
   const [otherOpen, setOtherOpen] = useState(false);
   const [other, setOther] = useState("");
@@ -221,7 +270,8 @@ function QuestionCard({ q, number, disabled, busy, onSubmit }: { q: ScoredQuesti
   const options = useMemo(() => q.options ?? [], [q.options]);
 
   const current: FieldValue | undefined =
-    q.input === "multiselect" ? (multi.length ? multi : undefined)
+    rich ? (filled.length ? filled : undefined)
+    : q.input === "multiselect" ? (multi.length ? multi : undefined)
     : ["number", "percent", "currency"].includes(q.input) ? (value.trim() === "" ? undefined : Number(value))
     : q.input === "boolean" ? (value === "" ? undefined : value === "true")
     : q.input === "select" && otherText ? undefined
@@ -250,6 +300,8 @@ function QuestionCard({ q, number, disabled, busy, onSubmit }: { q: ScoredQuesti
       const typing = el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT";
       if (e.key === "Enter" && (!typing || e.metaKey || e.ctrlKey || el.tagName === "INPUT")) {
         if (el.tagName === "BUTTON") return;
+        // Rich inputs (links, calendar rows) use Enter themselves; Ctrl/Cmd+Enter still saves.
+        if (el.closest("[data-rich-input]") && !e.metaKey && !e.ctrlKey) return;
         e.preventDefault();
         void saveRef.current();
         return;
@@ -279,6 +331,7 @@ function QuestionCard({ q, number, disabled, busy, onSubmit }: { q: ScoredQuesti
               {q.origin === "ai" && <Badge tone="violet">AI follow-up</Badge>}
               {q.critical && <Badge tone="amber">Important</Badge>}
               {q.input === "multiselect" && <span className="text-xs text-muted">Pick all that apply</span>}
+              <RichInputHint input={q.input} />
             </div>
           </div>
         </div>
@@ -333,6 +386,9 @@ function QuestionCard({ q, number, disabled, busy, onSubmit }: { q: ScoredQuesti
           </div>
         )}
         {q.input === "text" && <Input value={value} onChange={(e) => setValue(e.target.value)} placeholder={q.placeholder} disabled={disabled} autoFocus />}
+        {q.input === "links" && <LinksInput value={multi} onChange={setMulti} disabled={disabled} placeholder={q.placeholder} />}
+        {q.input === "images" && <ScreenshotsInput caseId={caseId} value={multi} onChange={setMulti} disabled={disabled} known={screenshots} channels={channels} />}
+        {q.input === "cadence" && <CadenceInput value={multi} onChange={setMulti} disabled={disabled} channels={channels} />}
         {q.input === "longtext" && <Textarea rows={4} value={value} onChange={(e) => setValue(e.target.value)} placeholder={q.placeholder} disabled={disabled} autoFocus />}
 
         {showNote ? (
