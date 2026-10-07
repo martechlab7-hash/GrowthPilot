@@ -130,11 +130,16 @@ export class ActivityRecorder implements Progress {
         this.step("Output did not match the expected structure — asking the model to correct it", e.reason.slice(0, 200));
         break;
       case "error":
-        this.step(`${e.provider} failed${e.willRetry ? " — retrying" : ""}`, e.message.slice(0, 300), "error");
+        this.step(`${e.provider} failed${e.willRetry ? " — retrying" : ""}`, e.message.slice(0, 500), "error");
         break;
       case "fallback":
         this.step(`Falling back from ${e.from} to ${e.to}`);
         break;
+      case "skipped": {
+        const why = { quota: "its quota or credits ran out", auth: "its API key was rejected", model: "the model was not found", timeout: "it timed out" }[e.reason] ?? e.reason;
+        this.step(`Skipping ${e.provider} for now`, `${e.model} failed a moment ago because ${why}. Trying it again in about ${e.minutes} min.`, "done", "ai");
+        break;
+      }
     }
   }
 

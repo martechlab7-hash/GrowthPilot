@@ -1,6 +1,6 @@
 import type { ChatRequest, ChatResponse, ProviderAdapter, ProviderCredentials, ProviderKind } from "../types";
 import { AIProviderError } from "../types";
-import { postJson } from "./http";
+import { classifyHttpError, postJson } from "./http";
 
 interface OpenAIChatResponse {
   model?: string;
@@ -61,7 +61,8 @@ function build(kind: ProviderKind, defaultBase: string | undefined): ProviderAda
       )) as OpenAIChatResponse;
       if (json.error) {
         const code = typeof json.error.code === "number" ? json.error.code : undefined;
-        throw new AIProviderError(`${kind} error: ${json.error.message ?? "unknown"}`, kind, code, code === undefined || code === 429 || code >= 500);
+        if (code !== undefined && code >= 400) throw classifyHttpError(kind, code, json.error.message ?? "unknown");
+        throw new AIProviderError(`${kind} error: ${json.error.message ?? "unknown"}`, kind, code, true);
       }
       const choice = json.choices?.[0];
       const text = choice?.message?.content ?? "";

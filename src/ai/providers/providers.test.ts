@@ -104,3 +104,22 @@ describe("images (vision)", () => {
     expect(sent.messages[1]).toEqual({ role: "user", content: "p" });
   });
 });
+
+describe("provider error messages", () => {
+  it("treats used-up quota and credits as lasting, with advice", async () => {
+    const { classifyHttpError } = await import("./http");
+    const gem = classifyHttpError("gemini", 429, "You exceeded your current quota, please check your plan and billing details.");
+    expect(gem).toMatchObject({ retryable: false, reason: "quota" });
+    expect(gem.message).toMatch(/enable billing in Google AI Studio/);
+    expect(classifyHttpError("openrouter", 402, "Insufficient credits")).toMatchObject({ retryable: false, reason: "quota" });
+    expect(classifyHttpError("openai", 429, "Rate limit reached for requests")).toMatchObject({ retryable: true, reason: "rate_limit" });
+    expect(classifyHttpError("anthropic", 401, "invalid x-api-key").message).toMatch(/rejected the API key/);
+    expect(classifyHttpError("openai", 404, "model not found").reason).toBe("model");
+    expect(classifyHttpError("openai", 503, "overloaded").retryable).toBe(true);
+  });
+
+  it("explains timeouts", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => { const e = new Error("aborted"); e.name = "TimeoutError"; throw e; }));
+    await expect(openaiAdapter.complete({ ...req("gpt-4.1"), timeoutMs: 1000 }, creds)).rejects.toMatchObject({ reason: "timeout", retryable: false });
+  });
+});

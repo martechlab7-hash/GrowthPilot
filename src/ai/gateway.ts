@@ -51,6 +51,23 @@ export interface GatewayOptions {
   log?: (event: string, data: Record<string, unknown>) => void;
 }
 
+/**
+ * Providers that just failed for a reason a retry cannot fix (quota used up,
+ * key rejected, model missing, timed out) are rested briefly, so the next
+ * agent in the same run goes straight to a working provider instead of
+ * paying the same failure again. Keyed by provider, key and model, so fixing
+ * the key or model takes effect immediately. A rested provider is still used
+ * when nothing else is available.
+ */
+const REST_MS: Record<string, number> = { quota: 10 * 60_000, auth: 30 * 60_000, model: 30 * 60_000, timeout: 3 * 60_000 };
+const resting = new Map<string, { until: number; reason: string }>();
+const restKey = (p: ResolvedProvider, model: string) => `${p.id}:${p.credentials.apiKey.slice(-6)}:${model}`;
+
+/** Test hook. */
+export function clearProviderRest() {
+  resting.clear();
+}
+
 const TIER_TOKENS: Record<ModelTier, number> = { fast: 2_000, reasoning: 8_000, large: 12_000 };
 const TIER_TIMEOUT: Record<ModelTier, number> = { fast: 45_000, reasoning: 150_000, large: 240_000 };
 
@@ -87,8 +104,20 @@ export class AIGateway {
       }
     };
     let previous: string | undefined;
+    const now = Date.now();
+    const isResting = (p: ResolvedProvider) => {
+      const r = resting.get(restKey(p, p.models[req.tier] || p.models.reasoning));
+      return !!r && r.until > now;
+    };
+    const anyAwake = this.opts.providers.some((p) => !isResting(p));
     for (const provider of this.opts.providers) {
       const model = provider.models[req.tier] || provider.models.reasoning;
+      if (anyAwake && isResting(provider)) {
+        const r = resting.get(restKey(provider, model))!;
+        attempts.push(`${provider.label} (${model}): skipped, failed recently (${r.reason})`);
+        emit({ type: "skipped", provider: provider.label, model, reason: r.reason, minutes: Math.max(1, Math.ceil((r.until - now) / 60_000)) });
+        continue;
+      }
       if (previous) emit({ type: "fallback", from: previous, to: provider.label });
       previous = provider.label;
       if (!model) {
@@ -141,6 +170,8 @@ export class AIGateway {
           attempts.push(`${provider.label} (${model}): ${message}`);
           this.opts.log?.("ai.attempt_failed", { agent: req.agent, provider: provider.kind, model, message });
           const retryable = err instanceof AIProviderError ? err.retryable : false;
+          const reason = err instanceof AIProviderError ? err.reason : undefined;
+          if (reason && REST_MS[reason]) resting.set(restKey(provider, model), { until: Date.now() + REST_MS[reason]!, reason });
           emit({ type: "error", provider: provider.label, model, message, willRetry: retryable && attempt < this.retries });
           if (!retryable || attempt === this.retries) break;
           await sleep(this.backoff * 2 ** attempt);
