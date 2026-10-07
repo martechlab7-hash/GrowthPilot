@@ -61,7 +61,7 @@ export class AIGateway {
   private readonly backoff: number;
 
   constructor(private readonly opts: GatewayOptions) {
-    this.retries = opts.retriesPerProvider ?? 2;
+    this.retries = opts.retriesPerProvider ?? 1;
     this.backoff = opts.backoffMs ?? 600;
   }
 

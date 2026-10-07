@@ -184,7 +184,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       )}
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col overflow-x-clip">
         <header className="no-print sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-line bg-white/80 px-4 backdrop-blur-md sm:px-8">
           <button aria-label="Open menu" onClick={() => setMobileOpen(true)} className="rounded-lg p-2 text-muted hover:bg-canvas lg:hidden">
             <Menu className="h-5 w-5" />

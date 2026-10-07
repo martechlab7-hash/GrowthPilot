@@ -34,6 +34,8 @@ const OPERATION_LABELS: Record<string, string> = {
   plan: "Activation & measurement plan",
   report: "Strategy report",
   interview: "Adaptive interview questions",
+  plan_interview: "Tailoring the interview to your case",
+  extract: "Reading facts from your answer",
   chat: "Answering your question",
 };
 
@@ -61,7 +63,7 @@ export class ActivityRecorder implements Progress {
   step(label: string, detail?: string, status: ActivityStep["status"] = "running") {
     const t = new Date().toISOString();
     for (const s of this.doc.steps) if (s.status === "running") s.status = "done";
-    this.doc.steps.push({ at: t, label, ...(detail ? { detail } : {}), status });
+    this.doc.steps.push({ at: t, label: clip(label, 240), ...(detail ? { detail: clip(detail, 600) } : {}), status });
     this.doc.steps = this.doc.steps.slice(-60);
     this.doc.updatedAt = t;
     void this.flush();
@@ -92,7 +94,7 @@ export class ActivityRecorder implements Progress {
   async finish(status: "succeeded" | "failed", detail?: string) {
     const t = new Date().toISOString();
     for (const s of this.doc.steps) if (s.status === "running") s.status = status === "failed" ? "error" : "done";
-    this.doc.steps.push({ at: t, label: status === "succeeded" ? "Completed and saved to the case" : "Stopped — case saved, nothing lost", ...(detail ? { detail } : {}), status: status === "succeeded" ? "done" : "error" });
+    this.doc.steps.push({ at: t, label: status === "succeeded" ? "Completed and saved to the case" : "Stopped — case saved, nothing lost", ...(detail ? { detail: clip(detail, 600) } : {}), status: status === "succeeded" ? "done" : "error" });
     this.doc.status = status;
     this.doc.finishedAt = t;
     this.doc.updatedAt = t;
@@ -103,4 +105,10 @@ export class ActivityRecorder implements Progress {
 export async function getActivity(orgId: string, caseId: string): Promise<CaseActivity | null> {
   const a = await col().get(caseId);
   return a && a.organizationId === orgId ? a : null;
+}
+
+/** Provider errors can embed huge raw payloads; keep the log readable. */
+function clip(s: string, max: number): string {
+  const flat = s.replace(/\s+/g, " ").trim();
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
 }

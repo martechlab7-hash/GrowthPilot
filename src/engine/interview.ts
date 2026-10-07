@@ -2,6 +2,7 @@ import type { Case, ProblemType, Question, ScoredQuestion, Stage } from "@/domai
 import { STAGES } from "@/domain/types";
 import { QUESTION_BANK, type BankQuestion } from "@/knowledge/questionBank";
 import { isKnown, markUnknown } from "./context";
+import { fillPlaceholders, metricFromStatement, vocabularyFor } from "@/knowledge/vocabulary";
 
 /**
  * Information Value Engine (spec §8–9).
@@ -16,7 +17,7 @@ export const MIN_PRIORITY = 20;
 const PROBLEM_BOOST = 1.5;
 const CRITICAL_BOOST = 1.25;
 
-type InterviewCase = Pick<Case, "context" | "problemTypes" | "industryId" | "adaptiveQuestions">;
+type InterviewCase = Pick<Case, "context" | "problemTypes" | "industryId" | "adaptiveQuestions"> & Partial<Pick<Case, "problemStatement" | "questionPlan">>;
 
 export const STAGE_LABELS: Record<Stage, string> = {
   business: "Business Objective",
@@ -32,7 +33,8 @@ export const STAGE_LABELS: Record<Stage, string> = {
 export function isRelevant(q: Question | BankQuestion, c: InterviewCase): boolean {
   const when = (q as BankQuestion).when;
   if (!when) return true;
-  if (when.problemTypes && !when.problemTypes.some((t) => c.problemTypes.includes(t))) {
+  // An unclassified problem keeps every lens open rather than guessing.
+  if (when.problemTypes && c.problemTypes.length && !when.problemTypes.some((t) => c.problemTypes.includes(t))) {
     return false;
   }
   if (when.industries && (!c.industryId || !when.industries.includes(c.industryId))) {
@@ -58,7 +60,31 @@ export function scoreQuestion(q: Question | BankQuestion, c: InterviewCase): Sco
   const boostFor = (q as BankQuestion).boostFor;
   if (boostFor && boostFor.some((t: ProblemType) => c.problemTypes.includes(t))) priority *= PROBLEM_BOOST;
   if (q.critical) priority *= CRITICAL_BOOST;
-  return { ...stripRules(q), priority: Math.round(priority * 10) / 10, uncertainty: u };
+  return { ...contextualize(stripRules(q), c), priority: Math.round(priority * 10) / 10, uncertainty: u };
+}
+
+/**
+ * Phrase a question in the case's own terms: the planner's tailored wording
+ * when available, otherwise industry vocabulary and the metric from the
+ * problem statement. Inferred answers are offered for confirmation.
+ */
+function contextualize(q: Question, c: InterviewCase): Question & { suggested?: ScoredQuestion["suggested"] } {
+  const plan = c.questionPlan?.items[q.id];
+  const metric = c.questionPlan?.metric || (c.problemStatement ? metricFromStatement(c.problemStatement) : undefined);
+  const v = vocabularyFor(c.industryId);
+  let prompt = plan?.prompt || fillPlaceholders(q.prompt, v, metric);
+  const why = plan?.why || fillPlaceholders(q.why, v, metric);
+  const f = c.context.fields[q.key];
+  const inferred = f && f.kind !== "fact" && !c.context.unknownKeys.includes(q.key) ? f.value : undefined;
+  let suggested: ScoredQuestion["suggested"];
+  if (inferred !== undefined && (q.input === "select" || q.input === "multiselect")) {
+    const vals = (Array.isArray(inferred) ? inferred : [inferred]).map(String).filter((x) => q.options?.includes(x));
+    if (vals.length) {
+      suggested = q.input === "select" ? vals[0] : vals;
+      prompt = `${prompt} I think it's ${vals.join(", ")}. Is that right?`;
+    }
+  }
+  return { ...q, prompt, why, ...(suggested !== undefined ? { suggested } : {}) };
 }
 
 function stripRules(q: Question | BankQuestion): Question {
@@ -69,7 +95,8 @@ function stripRules(q: Question | BankQuestion): Question {
 }
 
 export function candidateQuestions(c: InterviewCase): (Question | BankQuestion)[] {
-  const bank = QUESTION_BANK.filter((q) => isRelevant(q, c));
+  const plan = c.questionPlan?.status === "ready" ? c.questionPlan.items : undefined;
+  const bank = QUESTION_BANK.filter((q) => isRelevant(q, c) && !plan?.[q.id]?.skip);
   const seen = new Set(bank.map((q) => q.key));
   const adaptive = c.adaptiveQuestions.filter((q) => !seen.has(q.key));
   return [...bank, ...adaptive];
@@ -80,7 +107,8 @@ export function nextQuestions(c: InterviewCase, limit = 3): ScoredQuestion[] {
   return candidateQuestions(c)
     .map((q) => scoreQuestion(q, c))
     .filter((q) => q.priority >= MIN_PRIORITY)
-    .sort((a, b) => b.priority - a.priority)
+    // Equal value: understand the business and the problem before tools and economics.
+    .sort((a, b) => b.priority - a.priority || STAGES.indexOf(a.stage) - STAGES.indexOf(b.stage))
     .slice(0, limit);
 }
 
@@ -173,5 +201,5 @@ export function questionsToReady(c: InterviewCase, cap = 80): number {
 
 export function findQuestion(c: InterviewCase, id: string): Question | undefined {
   const q = candidateQuestions(c).find((x) => x.id === id);
-  return q ? stripRules(q) : undefined;
+  return q ? contextualize(stripRules(q), c) : undefined;
 }

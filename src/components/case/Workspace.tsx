@@ -155,7 +155,7 @@ export function Workspace({ id }: { id: string }) {
 
       {c.pendingOperation && !ctl.busy && (
         <div className="no-print mb-4 flex animate-fade-in flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          <span className="flex min-w-0 items-start gap-2"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> <span className="break-words">{c.pendingOperation.message}</span></span>
+          <span className="flex min-w-0 items-start gap-2"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> <span className="[overflow-wrap:anywhere]">{c.pendingOperation.message}</span></span>
           <div className="flex gap-2">
             {canManage && <Button size="sm" onClick={() => retry(c.pendingOperation!.operation)}>Retry now</Button>}
             <Button size="sm" variant="ghost" onClick={() => ctl.run("Dismissing", "", { method: "PATCH", body: { dismissPending: true } })}>Dismiss</Button>
@@ -170,7 +170,7 @@ export function Workspace({ id }: { id: string }) {
         </div>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-[230px_1fr] print:block">
+      <div className="grid gap-6 lg:grid-cols-[230px_minmax(0,1fr)] print:block">
         <aside className="no-print">
           <nav className="sticky top-20 space-y-4 rounded-2xl border border-line bg-white p-2.5 shadow-card" aria-label="Case sections">
             {TAB_GROUPS.map((g) => (
