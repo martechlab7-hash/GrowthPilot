@@ -22,7 +22,7 @@ import { classifyProblem } from "@/engine/classify";
 import { emptyContext, getNumber, isKnown, markUnknown, setField } from "@/engine/context";
 import { computeEconomics } from "@/engine/economics";
 import { selectFrameworks } from "@/engine/frameworkSelection";
-import { findQuestion, nextQuestions, readiness, stageCoverage, sufficiencyStatements } from "@/engine/interview";
+import { findQuestion, nextQuestions, questionsToReady, readiness, stageCoverage, sufficiencyStatements } from "@/engine/interview";
 import { assessMaturity } from "@/engine/maturity";
 import { overallProgress, stageProgress } from "@/engine/progress";
 import { prioritize } from "@/engine/prioritization";
@@ -76,6 +76,8 @@ export const AnswerSchema = z.object({
         value: FieldValueSchema.optional(),
         unknown: z.boolean().optional(),
         note: z.string().max(2000).optional(),
+        /** Free-text "Other" answer for select / multiselect questions. */
+        other: z.string().trim().max(2000).optional(),
       }),
     )
     .min(1)
@@ -427,13 +429,23 @@ function validateAnswer(q: Question, value: FieldValue): FieldValue {
   }
 }
 
+/** Choice answers may add a free-text "Other: …" entry next to (or instead of) the listed options. */
+export function answerWithOther(q: Question, value: FieldValue | undefined, other: string | undefined): FieldValue {
+  if (!other || (q.input !== "select" && q.input !== "multiselect")) return validateAnswer(q, value!);
+  const extra = `Other: ${other.slice(0, 2000)}`;
+  if (q.input === "select") return extra;
+  const picked = value === undefined || (Array.isArray(value) && value.length === 0) ? [] : (validateAnswer(q, value) as string[]);
+  return [...picked.filter((v) => v !== "Not sure"), extra];
+}
+
 export async function answerQuestions(auth: AuthContext, caseId: string, input: z.infer<typeof AnswerSchema>) {
   const current = await loadCase(auth, caseId);
   const resolved = input.answers.map((a) => {
     const q = findQuestion(current, a.questionId);
     if (!q) throw badRequest(`Unknown question ${a.questionId}`);
-    if (!a.unknown && a.value === undefined) throw badRequest(`Answer or mark "${q.prompt}" as unknown`);
-    return { a, q, value: a.unknown ? undefined : validateAnswer(q, a.value!) };
+    const other = a.other?.trim() ? a.other.trim() : undefined;
+    if (!a.unknown && a.value === undefined && !other) throw badRequest(`Answer or mark "${q.prompt}" as unknown`);
+    return { a, q, value: a.unknown ? undefined : answerWithOther(q, a.value, other) };
   });
 
   const updated = await mutate(auth, caseId, (c) => {
@@ -491,10 +503,15 @@ export async function answerQuestions(auth: AuthContext, caseId: string, input: 
 
 export function interviewState(c: Case, consultantNote?: string) {
   const r = readiness(c);
+  const answered = c.transcript.filter((t) => t.role === "user" && t.kind === "answer").length;
+  const optional = nextQuestions(c, 500).length;
+  const toReady = r.ready ? 0 : Math.max(1, Math.min(questionsToReady(c), optional));
   return {
     ...withDerived(c),
     interview: {
       questions: nextQuestions(c, 3),
+      /** toReady: core questions left before diagnosis; optional: every remaining worthwhile question. */
+      progress: { answered, toReady, optional, total: answered + toReady },
       sufficiency: sufficiencyStatements(c),
       readiness: r,
       consultantNote:

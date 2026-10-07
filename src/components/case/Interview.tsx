@@ -1,40 +1,76 @@
 "use client";
 
-import { useState } from "react";
-import { Bot, CheckCircle2, HelpCircle, Sparkles, User } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Bot, CheckCircle2, ChevronDown, CornerDownLeft, HelpCircle, PenLine, Sparkles, User } from "lucide-react";
 import type { FieldValue, ScoredQuestion } from "@/domain/types";
-import { Badge, Button, Card, CardBody, CardHeader, Chip, Input, Select, Spinner, Textarea } from "@/components/ui";
+import { Badge, Button, Card, CardBody, CardHeader, Chip, Input, Spinner, Textarea } from "@/components/ui";
+import { Owl } from "@/components/mascot";
+import { useAuth } from "@/lib/client/auth";
 import { cn } from "@/lib/cn";
+import { coachLine } from "@/lib/interviewCoach";
+import { firstName } from "@/lib/name";
 import type { CaseTabProps } from "./Workspace";
+
+type Submit = (v: FieldValue | undefined, unknown: boolean, note?: string, other?: string) => Promise<boolean>;
 
 export function Interview({ view, ctl, canContribute, canManage, go }: CaseTabProps) {
   const { case: c } = view;
   const iv = ctl.interview;
-  const recent = c.transcript.slice(-14);
+  const { me } = useAuth();
+  const name = me?.onboarded ? firstName(me.profile.displayName) : "";
+  const [last, setLast] = useState<"answered" | "skipped" | null>(null);
+  const current = iv?.questions[0];
+  const upNext = iv?.questions.slice(1) ?? [];
+  const progress = iv?.progress ?? { answered: c.askedQuestionIds.length, toReady: iv?.questions.length ?? 0, optional: iv?.questions.length ?? 0, total: c.askedQuestionIds.length + (iv?.questions.length ?? 0) };
+  const ready = !!iv?.readiness.ready;
+  const pct = ready ? 100 : progress.total ? Math.round((progress.answered / progress.total) * 100) : 0;
+  const coach = iv
+    ? coachLine({ name: name === "there" ? "" : name, answered: progress.answered, remaining: ready ? progress.optional : progress.toReady, ready, critical: !!current?.critical, category: current?.category, last })
+    : null;
+
+  const submit: Submit = async (value, unknown, note, other) => {
+    const ok = await ctl.run(`Saving ${current!.id}`, "/answer", {
+      body: { answers: [{ questionId: current!.id, ...(unknown ? { unknown: true } : value !== undefined ? { value } : {}), ...(other ? { other } : {}), ...(note ? { note } : {}) }] },
+    });
+    if (ok) setLast(unknown ? "skipped" : "answered");
+    return ok;
+  };
 
   return (
     <div className="grid gap-5 xl:grid-cols-[1fr_320px]">
       <div className="space-y-4">
-        <Card>
-          <CardHeader title="AI Consultant" description="Questions are ranked by information value: business impact × diagnostic value × uncertainty × decision relevance." />
-          <CardBody className="space-y-3">
-            {recent.map((t) => (
-              <div key={t.id} className={cn("flex gap-2.5 text-sm", t.role === "user" && "flex-row-reverse")}>
-                <div className={cn("mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full", t.role === "user" ? "bg-slate-100" : "bg-brand-50")}>
-                  {t.role === "user" ? <User className="h-3.5 w-3.5 text-slate-600" /> : <Bot className="h-3.5 w-3.5 text-brand-600" />}
+        {coach && (
+          <Card className="overflow-hidden">
+            <div className="flex items-center gap-4 bg-gradient-to-r from-brand-50 via-white to-violet-50 px-5 py-4">
+              <Owl size={64} mood={coach.mood} />
+              <div key={coach.headline} className="min-w-0 flex-1 animate-fade-in">
+                <p className="font-semibold tracking-tight">{coach.headline}</p>
+                <p className="text-sm text-muted">{coach.detail}</p>
+              </div>
+            </div>
+            {(progress.total > 0 || ready) && (
+              <div className="border-t border-line px-5 py-3">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-medium text-ink">
+                    {ready
+                      ? progress.optional > 0
+                        ? <>Core questions done <span className="text-muted">· {progress.optional} optional {progress.optional === 1 ? "question" : "questions"} to sharpen the diagnosis</span></>
+                        : "All questions answered"
+                      : <>Question {progress.answered + 1} <span className="text-muted">of about {progress.total}</span></>}
+                  </span>
+                  <span className={cn("tabular-nums", ready ? "font-medium text-emerald-600" : "text-muted")}>{ready ? "Ready to diagnose" : `${pct}% complete`}</span>
                 </div>
-                <div className={cn("max-w-[80%] rounded-xl px-3 py-2", t.role === "user" ? "bg-slate-100" : t.kind === "sufficiency" ? "bg-emerald-50 text-emerald-900" : "bg-brand-50/60")}>
-                  {t.kind === "sufficiency" && <CheckCircle2 className="mr-1 inline h-3.5 w-3.5" />}
-                  {t.text}
+                <div className="mt-2 h-2 overflow-hidden rounded-full bg-canvas" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label="Interview progress">
+                  <div className={cn("h-full rounded-full transition-[width] duration-700 ease-out", ready ? "bg-gradient-to-r from-emerald-400 to-emerald-500" : "bg-gradient-to-r from-brand-500 to-violet-500")} style={{ width: `${Math.max(3, pct)}%` }} />
                 </div>
               </div>
-            ))}
-          </CardBody>
-        </Card>
+            )}
+          </Card>
+        )}
 
         {!iv ? (
           <Spinner label="Preparing questions…" />
-        ) : iv.questions.length === 0 ? (
+        ) : !current ? (
           <Card>
             <CardBody className="space-y-3 py-6 text-sm">
               <p className="font-medium">No further high-value questions in the standard interview.</p>
@@ -50,8 +86,31 @@ export function Interview({ view, ctl, canContribute, canManage, go }: CaseTabPr
             </CardBody>
           </Card>
         ) : (
-          iv.questions.map((q) => <QuestionCard key={q.id} q={q} disabled={!canContribute} busy={ctl.busy === `Saving ${q.id}`} onSubmit={(value, unknown, note) => ctl.run(`Saving ${q.id}`, "/answer", { body: { answers: [{ questionId: q.id, ...(unknown ? { unknown: true } : { value }), ...(note ? { note } : {}) }] } })} />)
+          <QuestionCard
+            key={current.id}
+            q={current}
+            number={progress.answered + 1}
+            disabled={!canContribute}
+            busy={ctl.busy === `Saving ${current.id}`}
+            onSubmit={submit}
+          />
         )}
+
+        {upNext.length > 0 && (
+          <div className="rounded-2xl border border-dashed border-line-strong px-4 py-3">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-subtle">Up next</div>
+            <ul className="mt-1.5 space-y-1 text-sm text-muted">
+              {upNext.map((q, i) => (
+                <li key={q.id} className="flex items-center gap-2 truncate">
+                  <span className="tabular-nums text-subtle">{progress.answered + 2 + i}.</span>
+                  <span className="truncate">{q.prompt}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <Conversation transcript={c.transcript} />
       </div>
 
       <div className="space-y-4">
@@ -93,60 +152,158 @@ export function Interview({ view, ctl, canContribute, canManage, go }: CaseTabPr
   );
 }
 
-function QuestionCard({ q, disabled, busy, onSubmit }: { q: ScoredQuestion; disabled: boolean; busy: boolean; onSubmit: (v: FieldValue | undefined, unknown: boolean, note?: string) => Promise<boolean> }) {
+function Conversation({ transcript }: { transcript: CaseTabProps["view"]["case"]["transcript"] }) {
+  const recent = transcript.slice(-20);
+  if (!recent.length) return null;
+  return (
+    <details className="group rounded-2xl border border-line bg-white shadow-card">
+      <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-3.5 text-sm font-medium">
+        Our conversation so far <span className="flex items-center gap-1 text-xs font-normal text-muted">{transcript.length} messages <ChevronDown className="h-4 w-4 transition group-open:rotate-180" /></span>
+      </summary>
+      <div className="max-h-96 space-y-3 overflow-y-auto border-t border-line px-5 py-4">
+        {recent.map((t) => (
+          <div key={t.id} className={cn("flex gap-2.5 text-sm", t.role === "user" && "flex-row-reverse")}>
+            <div className={cn("mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full", t.role === "user" ? "bg-slate-100" : "bg-brand-50")}>
+              {t.role === "user" ? <User className="h-3.5 w-3.5 text-slate-600" /> : <Bot className="h-3.5 w-3.5 text-brand-600" />}
+            </div>
+            <div className={cn("max-w-[80%] rounded-xl px-3 py-2", t.role === "user" ? "bg-slate-100" : t.kind === "sufficiency" ? "bg-emerald-50 text-emerald-900" : "bg-brand-50/60")}>
+              {t.kind === "sufficiency" && <CheckCircle2 className="mr-1 inline h-3.5 w-3.5" />}
+              {t.text}
+            </div>
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+function QuestionCard({ q, number, disabled, busy, onSubmit }: { q: ScoredQuestion; number: number; disabled: boolean; busy: boolean; onSubmit: Submit }) {
   const [value, setValue] = useState<string>("");
   const [multi, setMulti] = useState<string[]>([]);
   const [note, setNote] = useState("");
+  const [otherOpen, setOtherOpen] = useState(false);
+  const [other, setOther] = useState("");
   const [showWhy, setShowWhy] = useState(false);
   const [showNote, setShowNote] = useState(false);
+  const otherRef = useRef<HTMLTextAreaElement>(null);
+  const choice = q.input === "select" || q.input === "multiselect";
+  const otherText = otherOpen ? other.trim() : "";
+  const options = useMemo(() => q.options ?? [], [q.options]);
 
   const current: FieldValue | undefined =
     q.input === "multiselect" ? (multi.length ? multi : undefined)
     : ["number", "percent", "currency"].includes(q.input) ? (value.trim() === "" ? undefined : Number(value))
     : q.input === "boolean" ? (value === "" ? undefined : value === "true")
+    : q.input === "select" && otherText ? undefined
     : value.trim() || undefined;
+  const canSave = !disabled && !busy && (current !== undefined || !!otherText);
+
+  const toggleMulti = (o: string) => setMulti(multi.includes(o) ? multi.filter((x) => x !== o) : [...multi, o]);
+  const pickSelect = (o: string) => { setValue(o); setOtherOpen(false); };
+  const openOther = () => {
+    const next = !otherOpen;
+    setOtherOpen(next);
+    if (next && q.input === "select") setValue("");
+    if (next) setTimeout(() => otherRef.current?.focus(), 0);
+  };
+  const save = async () => {
+    if (!canSave) return;
+    await onSubmit(q.input === "select" && otherText ? undefined : current, false, note || undefined, otherText || undefined);
+  };
+
+  // Keyboard: number keys pick options (outside text fields), Enter saves.
+  const saveRef = useRef(save);
+  useEffect(() => { saveRef.current = save; });
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement;
+      const typing = el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT";
+      if (e.key === "Enter" && (!typing || e.metaKey || e.ctrlKey || el.tagName === "INPUT")) {
+        if (el.tagName === "BUTTON") return;
+        e.preventDefault();
+        void saveRef.current();
+        return;
+      }
+      if (typing || e.metaKey || e.ctrlKey || e.altKey || !choice || q.groups) return;
+      const n = Number(e.key);
+      if (!Number.isInteger(n) || n < 1 || n > 9) return;
+      const o = options[n - 1];
+      if (!o) return;
+      if (q.input === "select") { setValue(o); setOtherOpen(false); } else setMulti((m) => (m.includes(o) ? m.filter((x) => x !== o) : [...m, o]));
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [choice, options, q.groups, q.input]);
 
   return (
-    <Card className="border-brand-600/20">
-      <CardBody className="space-y-3">
-        <div className="flex items-start justify-between gap-3">
-          <p className="font-medium leading-snug">{q.prompt}</p>
-          <div className="flex shrink-0 gap-1">
-            <Badge>{q.category}</Badge>
-            {q.origin === "ai" && <Badge tone="violet">AI follow-up</Badge>}
-            {q.critical && <Badge tone="amber">Critical</Badge>}
+    <Card className="animate-slide-up border-brand-600/20 shadow-pop">
+      <CardBody className="space-y-4 p-6">
+        <div className="flex items-start gap-3">
+          <span className="flex h-9 min-w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-violet-500 px-2 text-sm font-semibold tabular-nums text-white shadow-md shadow-brand-600/25">
+            {number}
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-lg font-semibold leading-snug tracking-tight">{q.prompt}</p>
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              <Badge>{q.category}</Badge>
+              {q.origin === "ai" && <Badge tone="violet">AI follow-up</Badge>}
+              {q.critical && <Badge tone="amber">Important</Badge>}
+              {q.input === "multiselect" && <span className="text-xs text-muted">Pick all that apply</span>}
+            </div>
           </div>
         </div>
 
         <button type="button" onClick={() => setShowWhy(!showWhy)} className="flex items-center gap-1 text-xs font-medium text-brand-600">
           <HelpCircle className="h-3.5 w-3.5" /> Why am I asking this?
         </button>
-        {showWhy && <p className="rounded-lg bg-canvas px-3 py-2 text-sm text-muted">{q.why} <span className="text-xs">(information value {q.priority})</span></p>}
+        {showWhy && <p className="animate-fade-in rounded-lg bg-canvas px-3 py-2 text-sm text-muted">{q.why} <span className="text-xs">(information value {q.priority})</span></p>}
 
-        {q.input === "select" && q.options && (
-          <div className="flex flex-wrap gap-2">{q.options.map((o) => <Chip key={o} active={value === o} disabled={disabled} onClick={() => setValue(o)}>{o}</Chip>)}</div>
-        )}
-        {q.input === "multiselect" && q.options && !q.groups && (
+        {q.input === "select" && (
           <div className="flex flex-wrap gap-2">
-            {q.options.map((o) => <Chip key={o} active={multi.includes(o)} disabled={disabled} onClick={() => setMulti(multi.includes(o) ? multi.filter((x) => x !== o) : [...multi, o])}>{o}</Chip>)}
+            {options.map((o, i) => <OptionChip key={o} index={i} active={value === o && !otherOpen} disabled={disabled} onClick={() => pickSelect(o)}>{o}</OptionChip>)}
+            <OtherChip active={otherOpen} disabled={disabled} onClick={openOther} />
+          </div>
+        )}
+        {q.input === "multiselect" && !q.groups && (
+          <div className="flex flex-wrap gap-2">
+            {options.map((o, i) => <OptionChip key={o} index={i} active={multi.includes(o)} disabled={disabled} onClick={() => toggleMulti(o)}>{o}</OptionChip>)}
+            <OtherChip active={otherOpen} disabled={disabled} onClick={openOther} />
           </div>
         )}
         {q.input === "multiselect" && q.groups && (
-          <GroupedChips groups={q.groups} selected={multi} disabled={disabled} onToggle={(o) => setMulti(multi.includes(o) ? multi.filter((x) => x !== o) : [...multi, o])} />
+          <>
+            <GroupedChips groups={q.groups} selected={multi} disabled={disabled} onToggle={toggleMulti} />
+            <div><OtherChip active={otherOpen} disabled={disabled} onClick={openOther} label="Something else" /></div>
+          </>
+        )}
+        {choice && otherOpen && (
+          <div className="animate-fade-in">
+            <Textarea
+              ref={otherRef}
+              rows={3}
+              maxLength={2000}
+              value={other}
+              onChange={(e) => setOther(e.target.value)}
+              placeholder="Tell me in your own words. The more detail, the better my diagnosis."
+              disabled={disabled}
+              aria-label="Your own answer"
+            />
+            <p className="mt-1 text-xs text-subtle">{q.input === "multiselect" ? "Added alongside anything you picked above." : "This replaces the options above."}</p>
+          </div>
         )}
         {q.input === "boolean" && (
-          <Select value={value} onChange={(e) => setValue(e.target.value)} disabled={disabled}>
-            <option value="">Select…</option><option value="true">Yes</option><option value="false">No</option>
-          </Select>
+          <div className="flex gap-2">
+            {[["true", "Yes"], ["false", "No"]].map(([v, l], i) => <OptionChip key={v} index={i} active={value === v} disabled={disabled} onClick={() => setValue(v!)}>{l}</OptionChip>)}
+          </div>
         )}
         {["number", "percent", "currency"].includes(q.input) && (
           <div className="flex items-center gap-2">
-            <Input type="number" min={0} max={q.input === "percent" ? 100 : undefined} step="any" value={value} onChange={(e) => setValue(e.target.value)} disabled={disabled} className="max-w-xs" />
+            <Input type="number" min={0} max={q.input === "percent" ? 100 : undefined} step="any" value={value} onChange={(e) => setValue(e.target.value)} disabled={disabled} className="max-w-xs" autoFocus />
             <span className="text-sm text-muted">{q.input === "percent" ? "%" : q.input === "currency" ? "in case currency" : q.unit}</span>
           </div>
         )}
-        {q.input === "text" && <Input value={value} onChange={(e) => setValue(e.target.value)} placeholder={q.placeholder} disabled={disabled} />}
-        {q.input === "longtext" && <Textarea rows={3} value={value} onChange={(e) => setValue(e.target.value)} placeholder={q.placeholder} disabled={disabled} />}
+        {q.input === "text" && <Input value={value} onChange={(e) => setValue(e.target.value)} placeholder={q.placeholder} disabled={disabled} autoFocus />}
+        {q.input === "longtext" && <Textarea rows={4} value={value} onChange={(e) => setValue(e.target.value)} placeholder={q.placeholder} disabled={disabled} autoFocus />}
 
         {showNote ? (
           <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optional context for this answer" disabled={disabled} />
@@ -154,16 +311,35 @@ function QuestionCard({ q, disabled, busy, onSubmit }: { q: ScoredQuestion; disa
           <button type="button" className="text-xs text-muted hover:text-ink" onClick={() => setShowNote(true)}>+ Add a note</button>
         )}
 
-        <div className="flex flex-wrap justify-end gap-2">
-          <Button variant="ghost" size="sm" disabled={disabled || busy} onClick={() => onSubmit(undefined, true)}>I don&apos;t know / not available</Button>
-          <Button size="sm" loading={busy} disabled={disabled || current === undefined} onClick={async () => {
-            if (await onSubmit(current, false, note || undefined)) {
-              setValue(""); setMulti([]); setNote(""); setShowNote(false);
-            }
-          }}>Save answer</Button>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-4">
+          <span className="hidden items-center gap-1 text-xs text-subtle sm:flex">
+            {choice && !q.groups && <><kbd className="rounded border border-line bg-canvas px-1 font-mono">1</kbd>–<kbd className="rounded border border-line bg-canvas px-1 font-mono">9</kbd> to pick ·</>}
+            <kbd className="rounded border border-line bg-canvas px-1 font-mono"><CornerDownLeft className="inline h-3 w-3" /></kbd> to save
+          </span>
+          <div className="ml-auto flex flex-wrap gap-2">
+            <Button variant="ghost" size="sm" disabled={disabled || busy} onClick={() => onSubmit(undefined, true)}>I don&apos;t know / not available</Button>
+            <Button size="sm" loading={busy} disabled={!canSave} onClick={() => void save()}>Save answer</Button>
+          </div>
         </div>
       </CardBody>
     </Card>
+  );
+}
+
+function OptionChip({ index, children, ...props }: { index: number; active: boolean; disabled?: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <Chip {...props}>
+      {index < 9 && <span className={cn("mr-1.5 inline-flex h-4 w-4 items-center justify-center rounded text-[10px] font-semibold tabular-nums", props.active ? "bg-brand-600 text-white" : "bg-canvas text-subtle")}>{index + 1}</span>}
+      {children}
+    </Chip>
+  );
+}
+
+function OtherChip({ active, disabled, onClick, label = "Other" }: { active: boolean; disabled?: boolean; onClick: () => void; label?: string }) {
+  return (
+    <Chip active={active} disabled={disabled} onClick={onClick}>
+      <PenLine className="mr-1.5 inline h-3.5 w-3.5" />{label}…
+    </Chip>
   );
 }
 

@@ -1,7 +1,7 @@
 import type { Case, ProblemType, Question, ScoredQuestion, Stage } from "@/domain/types";
 import { STAGES } from "@/domain/types";
 import { QUESTION_BANK, type BankQuestion } from "@/knowledge/questionBank";
-import { isKnown } from "./context";
+import { isKnown, markUnknown } from "./context";
 
 /**
  * Information Value Engine (spec §8–9).
@@ -153,6 +153,22 @@ export function readiness(c: InterviewCase): Readiness {
     coverage: Math.round(coverage * 100) / 100,
     missingCritical,
   };
+}
+
+/**
+ * Roughly how many more questions until discovery is ready, assuming the user
+ * keeps answering the top-ranked question. Used for the "Question 3 of ~12"
+ * counter, so the target stays honest without counting optional extras.
+ */
+export function questionsToReady(c: InterviewCase, cap = 80): number {
+  let sim = c;
+  for (let n = 0; n < cap; n++) {
+    if (readiness(sim).ready) return n;
+    const q = nextQuestions(sim, 1)[0];
+    if (!q) return n;
+    sim = { ...sim, context: markUnknown(sim.context, q.key) };
+  }
+  return cap;
 }
 
 export function findQuestion(c: InterviewCase, id: string): Question | undefined {

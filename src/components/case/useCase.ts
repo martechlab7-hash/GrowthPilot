@@ -12,6 +12,7 @@ export interface InterviewView {
   sufficiency: string[];
   readiness: Readiness;
   consultantNote: string;
+  progress?: { answered: number; toReady: number; optional: number; total: number };
 }
 type WithInterview = CaseView & { interview?: InterviewView };
 
