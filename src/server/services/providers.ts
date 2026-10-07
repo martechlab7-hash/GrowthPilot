@@ -243,3 +243,13 @@ export async function runAdHocTest(input: ProviderInput) {
     credentials: { apiKey: input.apiKey.trim(), ...(baseUrl ? { baseUrl } : {}) },
   });
 }
+
+/**
+ * A different provider for a second opinion (used by the debate panel), so
+ * challengers do not share the blind spots of the model that wrote the
+ * hypotheses. Undefined when only one provider is configured.
+ */
+export async function secondOpinion(orgId: string): Promise<{ providerId: string } | undefined> {
+  const providers = await resolveProviders(orgId);
+  return providers.length > 1 ? { providerId: providers[1]!.id } : undefined;
+}

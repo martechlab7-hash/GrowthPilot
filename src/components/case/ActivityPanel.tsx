@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertCircle, CheckCircle2, ChevronDown, Loader2 } from "lucide-react";
+import { AlertCircle, CheckCircle2, ChevronDown, Cpu, History, Lightbulb, Loader2, ScanSearch } from "lucide-react";
 import type { CaseActivity } from "@/server/services/activity";
 import { apiFetch } from "@/lib/client/api";
 import { cn } from "@/lib/cn";
@@ -61,22 +61,64 @@ export function ActivityPanel({ caseId, busy }: { caseId: string; busy: string |
         </button>
       </div>
       {expanded && activity && (
-        <ol className="max-h-80 space-y-2 overflow-y-auto border-t border-line px-4 py-3 text-sm">
-          {activity.steps.map((s, i) => (
-            <li key={i} className="flex gap-2.5">
-              <span className="mt-0.5 shrink-0">
-                {s.status === "running" && status === "running" ? <Loader2 className="h-3.5 w-3.5 animate-spin text-brand-600" /> : s.status === "error" ? <AlertCircle className="h-3.5 w-3.5 text-red-600" /> : <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />}
-              </span>
-              <span className="min-w-0">
-                <span className={cn("[overflow-wrap:anywhere]", s.status === "error" && "text-red-700")}>{s.label}</span>
-                <span className="ml-2 text-xs text-muted">{new Date(s.at).toLocaleTimeString()}</span>
-                {s.detail && <span className="block text-xs text-muted [overflow-wrap:anywhere]">{s.detail}</span>}
-              </span>
-            </li>
-          ))}
-        </ol>
+        <div className="border-t border-line">
+          <StepList steps={activity.steps} running={status === "running"} />
+          {!!activity.history?.length && (
+            <details className="group border-t border-line">
+              <summary className="flex cursor-pointer list-none items-center gap-1.5 px-4 py-2.5 text-xs font-medium text-muted hover:text-ink">
+                <History className="h-3.5 w-3.5" /> Previous runs ({activity.history.length})
+                <ChevronDown className="h-3.5 w-3.5 transition group-open:rotate-180" />
+              </summary>
+              <div className="space-y-2 px-4 pb-3">
+                {activity.history.map((run, i) => (
+                  <details key={i} className="rounded-lg border border-line">
+                    <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-xs">
+                      {run.status === "failed" ? <AlertCircle className="h-3.5 w-3.5 text-red-600" /> : <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />}
+                      <span className="font-medium">{run.operation}</span>
+                      <span className="text-muted">· {new Date(run.startedAt).toLocaleString()}{run.model ? ` · ${run.model}` : ""}</span>
+                    </summary>
+                    <StepList steps={run.steps} running={false} />
+                  </details>
+                ))}
+              </div>
+            </details>
+          )}
+        </div>
       )}
       {expanded && !activity && <p className="border-t border-line px-4 py-3 text-sm text-muted">Starting…</p>}
     </div>
+  );
+}
+
+/** Steps grouped visually by kind: analysis (what is examined), AI calls, and the model's reasoning summary. */
+function StepList({ steps, running }: { steps: CaseActivity["steps"]; running: boolean }) {
+  return (
+    <ol className="max-h-96 space-y-2 overflow-y-auto px-4 py-3 text-sm">
+      {steps.map((s, i) =>
+        s.kind === "thinking" ? (
+          <li key={i} className="flex gap-2.5">
+            <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-600" />
+            <span className="min-w-0 rounded-lg bg-violet-50 px-2.5 py-1.5 text-[13px] italic text-violet-950 [overflow-wrap:anywhere]">
+              <span className="mr-1 text-[10px] font-semibold uppercase not-italic tracking-wider text-violet-500">Reasoning</span>{s.label}
+            </span>
+          </li>
+        ) : (
+          <li key={i} className="flex gap-2.5">
+            <span className="mt-0.5 shrink-0">
+              {s.status === "running" && running ? <Loader2 className="h-3.5 w-3.5 animate-spin text-brand-600" />
+                : s.status === "error" ? <AlertCircle className="h-3.5 w-3.5 text-red-600" />
+                : s.kind === "analysis" ? <ScanSearch className="h-3.5 w-3.5 text-sky-600" />
+                : s.kind === "ai" ? <Cpu className="h-3.5 w-3.5 text-slate-500" />
+                : <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />}
+            </span>
+            <span className="min-w-0">
+              <span className={cn("[overflow-wrap:anywhere]", s.status === "error" && "text-red-700", s.kind === "analysis" && "font-medium text-sky-900")}>{s.label}</span>
+              <span className="ml-2 text-xs text-muted">{new Date(s.at).toLocaleTimeString()}</span>
+              {s.detail && <span className="block text-xs text-muted [overflow-wrap:anywhere]">{s.detail}</span>}
+            </span>
+          </li>
+        ),
+      )}
+    </ol>
   );
 }

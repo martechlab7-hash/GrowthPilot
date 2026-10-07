@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Bot, CheckCircle2, ChevronDown, CornerDownLeft, HelpCircle, Loader2, PenLine, Sparkles, Target, User } from "lucide-react";
+import { Bot, CheckCircle2, ChevronDown, CornerDownLeft, Database, HelpCircle, Loader2, PenLine, Sparkles, Target, Upload, User } from "lucide-react";
 import type { FieldValue, ScoredQuestion } from "@/domain/types";
 import { Badge, Button, Card, CardBody, CardHeader, Chip, Input, Spinner, Textarea } from "@/components/ui";
 import { Owl } from "@/components/mascot";
@@ -10,6 +10,7 @@ import { cn } from "@/lib/cn";
 import { coachLine } from "@/lib/interviewCoach";
 import { firstName } from "@/lib/name";
 import type { CaseTabProps } from "./Workspace";
+import { PiiNotice } from "./DataShare";
 
 type Submit = (v: FieldValue | undefined, unknown: boolean, note?: string, other?: string) => Promise<boolean>;
 
@@ -152,6 +153,16 @@ export function Interview({ view, ctl, canContribute, canManage, go }: CaseTabPr
             </CardBody>
           </Card>
         )}
+        <Card>
+          <CardBody className="space-y-3 text-sm">
+            <div className="flex items-center gap-2 font-semibold"><Database className="h-4 w-4 text-brand-600" /> Have data? Share it</div>
+            <p className="text-muted">An export (CSV) or pasted numbers often answers several questions at once, such as {iv?.progress && c.questionPlan?.metric ? <>{c.questionPlan.metric} by month and segment</> : "monthly results by segment or channel"}.</p>
+            <PiiNotice compact />
+            <Button className="w-full" variant="outline" onClick={() => go("data")}>
+              <Upload className="h-4 w-4" /> Share data{c.datasets?.length ? ` (${c.datasets.length} shared)` : ""}
+            </Button>
+          </CardBody>
+        </Card>
         {view.derived.coverage.length > 0 && (
           <Card>
             <CardHeader title="Coverage by area" />

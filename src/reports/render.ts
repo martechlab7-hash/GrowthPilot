@@ -1,6 +1,6 @@
 import "server-only";
 import type { BrandProfile, Case } from "@/domain/types";
-import { buildReportModel } from "./model";
+import { buildReportModel, forAudience, type Audience } from "./model";
 import { renderMarkdown } from "./markdown";
 
 export const EXPORT_FORMATS = ["pdf", "docx", "pptx", "md", "json"] as const;
@@ -14,9 +14,9 @@ const MIME: Record<ExportFormat, string> = {
   json: "application/json",
 };
 
-export async function renderReport(c: Case, brand: BrandProfile, format: ExportFormat) {
+export async function renderReport(c: Case, brand: BrandProfile, format: ExportFormat, audience: Audience = "full") {
   // XML (DOCX/PPTX) forbids most control characters; AI output occasionally contains them.
-  const model = JSON.parse(JSON.stringify(buildReportModel(c, brand)), (_k, v) =>
+  const model = JSON.parse(JSON.stringify(forAudience(buildReportModel(c, brand), audience)), (_k, v) =>
     typeof v === "string" ? v.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g, "") : v,
   ) as ReturnType<typeof buildReportModel>;
   const slug = c.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "strategy";
@@ -33,5 +33,5 @@ export async function renderReport(c: Case, brand: BrandProfile, format: ExportF
   } catch (err) {
     throw new Error(`Could not generate the ${format.toUpperCase()} file: ${err instanceof Error ? err.message : String(err)}`);
   }
-  return { body, mime: MIME[format], filename: `${slug}.${format}` };
+  return { body, mime: MIME[format], filename: `${slug}${audience === "full" ? "" : `-${audience}`}.${format}` };
 }

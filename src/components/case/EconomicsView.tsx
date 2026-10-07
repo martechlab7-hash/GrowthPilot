@@ -1,88 +1,191 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Calculator } from "lucide-react";
 import type { EconomicsInputs, KnowledgeKind } from "@/domain/types";
-import { Button, Card, CardBody, CardHeader, Input, KindBadge, Label, Spinner } from "@/components/ui";
+import { Badge, Button, Card, CardBody, CardHeader, ErrorNote, Input, KindBadge, Label, Select, Spinner } from "@/components/ui";
 import { ScenarioChart } from "@/components/charts";
 import { apiFetch } from "@/lib/client/api";
 import { money } from "@/reports/model";
+import { computeScenario } from "@/engine/economics";
+import { breakEvenLift, monteCarlo, sensitivity } from "@/engine/risk";
+import { DEFAULT_ECONOMICS_MODEL, ECONOMICS_MODELS, getEconomicsModel, modelForProblem } from "@/engine/economicsModels";
+import { cn } from "@/lib/cn";
 import type { CaseTabProps } from "./Workspace";
 
 type Defaults = { defaults: { inputs: EconomicsInputs; provenance: Record<string, KnowledgeKind> } };
+type NumKey = "volume" | "value" | "margin" | "investment" | "run" | "conservative" | "base" | "aggressive";
+type Form = Record<NumKey, string> & { model: string; currency: string };
+
+/** Numbers are edited as text, so fields can be empty and never show a stuck leading zero. */
+const toText = (n: number | undefined, blankZero = true) => (n === undefined || (blankZero && n === 0) ? "" : String(n));
+const parse = (s: string) => {
+  const n = Number(s.replace(/[,\s]/g, ""));
+  return s.trim() === "" || !Number.isFinite(n) ? undefined : n;
+};
+const group = (s: string) => {
+  const n = parse(s);
+  return n === undefined ? s : n.toLocaleString("en", { maximumFractionDigits: 2 });
+};
+
+function toForm(i: EconomicsInputs, fallbackModel: string): Form {
+  return {
+    model: i.model ?? fallbackModel,
+    currency: i.currency,
+    volume: toText(i.eligibleCustomers),
+    value: toText(i.averageAnnualValue),
+    margin: toText(i.grossMarginPct),
+    investment: toText(i.investment),
+    run: toText(i.monthlyRunCost),
+    conservative: toText(i.scenarioLifts.conservative, false),
+    base: toText(i.scenarioLifts.base, false),
+    aggressive: toText(i.scenarioLifts.aggressive, false),
+  };
+}
+
+function toInputs(f: Form): EconomicsInputs {
+  return {
+    currency: f.currency || "USD",
+    model: f.model,
+    eligibleCustomers: parse(f.volume) ?? 0,
+    averageAnnualValue: parse(f.value) ?? 0,
+    grossMarginPct: parse(f.margin) ?? 0,
+    investment: parse(f.investment) ?? 0,
+    monthlyRunCost: parse(f.run) ?? 0,
+    scenarioLifts: { conservative: parse(f.conservative) ?? 0, base: parse(f.base) ?? 0, aggressive: parse(f.aggressive) ?? 0 },
+  };
+}
 
 export function EconomicsView({ view, ctl, canContribute }: CaseTabProps) {
   const c = view.case;
-  const [inputs, setInputs] = useState<EconomicsInputs | null>(c.economics?.inputs ?? null);
+  const suggested = modelForProblem(c.problemTypes);
+  const [form, setForm] = useState<Form | null>(c.economics ? toForm(c.economics.inputs, suggested.id) : null);
   const [prov, setProv] = useState<Record<string, KnowledgeKind>>(c.economics?.inputProvenance ?? {});
+  const [err, setErr] = useState<string | null>(null);
+  const [record, setRecord] = useState<{ completed: number; ratio: number | null; hitRate: number | null } | null>(null);
 
   useEffect(() => {
-    if (inputs) return;
+    apiFetch<{ trackRecord: { completed: number; ratio: number | null; hitRate: number | null } }>("/api/track-record").then((r) => setRecord(r.trackRecord)).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (form) return;
     apiFetch<Defaults>(`/api/cases/${c.id}/economics`).then((d) => {
-      setInputs(d.defaults.inputs);
+      setForm(toForm(d.defaults.inputs, suggested.id));
       setProv(d.defaults.provenance);
     }).catch(() => {});
-  }, [c.id, inputs]);
+  }, [c.id, form, suggested.id]);
 
-  if (!inputs) return <Spinner label="Loading economics…" />;
-  const set = (k: keyof EconomicsInputs, v: number) => setInputs({ ...inputs, [k]: v });
-  const setLift = (k: keyof EconomicsInputs["scenarioLifts"], v: number) => setInputs({ ...inputs, scenarioLifts: { ...inputs.scenarioLifts, [k]: v } });
+  if (!form) return <Spinner label="Loading economics…" />;
+  const model = getEconomicsModel(form.model) ?? DEFAULT_ECONOMICS_MODEL;
+  const set = (k: keyof Form, v: string) => setForm({ ...form, [k]: v });
   const e = c.economics;
+  const shownModel = getEconomicsModel(e?.inputs.model) ?? model;
 
-  const field = (k: "eligibleCustomers" | "averageAnnualValue" | "grossMarginPct" | "investment" | "monthlyRunCost", label: string, hint?: string) => (
-    <div>
-      <Label htmlFor={k} hint={hint}>{label}</Label>
-      <div className="flex items-center gap-2">
-        <Input id={k} type="number" min={0} step="any" value={inputs[k]} disabled={!canContribute} onChange={(ev) => set(k, Number(ev.target.value))} />
-        <KindBadge kind={prov[k] ?? "assumption"} />
-      </div>
-    </div>
-  );
+  const switchModel = async (id: string) => {
+    const d = await apiFetch<Defaults>(`/api/cases/${c.id}/economics?model=${id}`);
+    const next = toForm(d.defaults.inputs, id);
+    // Keep anything the user already typed; take pre-filled answers only for empty fields.
+    setForm({ ...next, ...Object.fromEntries((["volume", "value", "margin", "investment", "run"] as const).filter((k) => form[k] !== "").map((k) => [k, form[k]])), model: id, currency: form.currency });
+    setProv(d.defaults.provenance);
+  };
+
+  const inputs = toInputs(form);
+  const ready = inputs.eligibleCustomers > 0 && inputs.averageAnnualValue > 0 && inputs.grossMarginPct > 0;
+  const preview = ready ? computeScenario(inputs, "base", inputs.scenarioLifts.base) : null;
 
   return (
     <div className="space-y-5">
       <Card>
-        <CardHeader title="Business case inputs" description="Values from your answers are facts; anything you type here that differs is treated as an assumption." />
+        <CardHeader
+          title="Business case"
+          description="Values pre-filled from your answers are facts; anything you type is treated as an assumption. The maths runs in code, not in the AI, so it is reproducible."
+        />
         <CardBody>
           <form
-            className="space-y-5"
+            className="space-y-6"
             onSubmit={async (ev) => {
               ev.preventDefault();
+              if (!ready) return setErr(`Fill in ${[!inputs.eligibleCustomers && model.volume.label, !inputs.averageAnnualValue && model.value.label, !inputs.grossMarginPct && "Gross margin"].filter(Boolean).join(", ")} to calculate.`);
+              setErr(null);
               await ctl.run("Calculating", "/economics", { method: "PUT", body: inputs });
             }}
           >
-            <div className="grid gap-4 sm:grid-cols-3">
-              {field("eligibleCustomers", "Eligible customers")}
-              {field("averageAnnualValue", "Average annual value", `(${inputs.currency})`)}
-              {field("grossMarginPct", "Gross margin", "(%)")}
-              {field("investment", "One-off investment", `(${inputs.currency})`)}
-              {field("monthlyRunCost", "Monthly run cost", `(${inputs.currency})`)}
+            <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_200px]">
+              <div>
+                <Label htmlFor="model">What are we modelling?</Label>
+                <Select id="model" value={form.model} disabled={!canContribute} onChange={(ev) => void switchModel(ev.target.value)}>
+                  {ECONOMICS_MODELS.map((m) => <option key={m.id} value={m.id}>{m.name}{m.id === suggested.id ? " (suggested for this case)" : ""}</option>)}
+                </Select>
+                <p className="mt-1 text-xs text-muted">{model.description}</p>
+              </div>
               <div>
                 <Label htmlFor="currency">Currency</Label>
-                <Input id="currency" maxLength={3} value={inputs.currency} disabled={!canContribute} onChange={(ev) => setInputs({ ...inputs, currency: ev.target.value.toUpperCase() })} />
+                <Input id="currency" maxLength={3} value={form.currency} disabled={!canContribute} onChange={(ev) => set("currency", ev.target.value.toUpperCase())} />
               </div>
             </div>
-            <div>
-              <div className="mb-2 flex items-center gap-2 text-sm font-medium">Scenario lift on eligible customers <KindBadge kind="assumption" /></div>
+
+            {record && record.completed > 0 && record.ratio !== null && (
+              <div className="flex flex-wrap items-center gap-3 rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-950">
+                <span className="min-w-0 flex-1">
+                  <b>Your track record:</b> {record.completed} completed initiative{record.completed > 1 ? "s" : ""} delivered on average <b>{record.ratio}×</b> their forecast lift ({Math.round((record.hitRate ?? 0) * 100)}% met forecast).
+                </span>
+                {canContribute && record.ratio !== 1 && (
+                  <Button type="button" size="sm" variant="outline" onClick={() => {
+                    const k = record.ratio!;
+                    const scale = (v: string) => { const n = parse(v); return n === undefined ? v : String(Math.round(n * k * 10) / 10); };
+                    setForm({ ...form, conservative: scale(form.conservative), base: scale(form.base), aggressive: scale(form.aggressive) });
+                  }}>Calibrate lifts ×{record.ratio}</Button>
+                )}
+              </div>
+            )}
+
+            <div className="grid gap-4 md:grid-cols-3">
+              <NumberField id="eligibleCustomers" label={model.volume.label} hint={model.volume.hint} placeholder={model.volume.placeholder} value={form.volume} onChange={(v) => set("volume", v)} kind={prov.eligibleCustomers} disabled={!canContribute} />
+              <NumberField id="averageAnnualValue" label={model.value.label} hint={model.value.hint} placeholder={model.value.placeholder} unit={form.currency} value={form.value} onChange={(v) => set("value", v)} kind={prov.averageAnnualValue} disabled={!canContribute} />
+              <NumberField id="grossMarginPct" label="Gross margin" hint="Share of revenue left after direct costs." placeholder="e.g. 30" unit="%" value={form.margin} onChange={(v) => set("margin", v)} kind={prov.grossMarginPct} disabled={!canContribute} />
+              <NumberField id="investment" label="One-off investment" hint="Set-up cost: tools, build, agency, creative." placeholder="0 if none" unit={form.currency} value={form.investment} onChange={(v) => set("investment", v)} kind="assumption" disabled={!canContribute} />
+              <NumberField id="monthlyRunCost" label="Monthly run cost" hint="Ongoing cost: media, incentives, licences, people." placeholder="0 if none" unit={form.currency} value={form.run} onChange={(v) => set("run", v)} kind="assumption" disabled={!canContribute} />
+            </div>
+
+            <div className="rounded-xl border border-line bg-canvas/50 p-4">
+              <div className="mb-1 flex items-center gap-2 text-sm font-medium">{model.lift.label} <KindBadge kind="assumption" /></div>
+              <p className="mb-3 text-xs text-muted">{model.lift.hint} Validate the base case with a control group before scaling.</p>
               <div className="grid gap-4 sm:grid-cols-3">
                 {(["conservative", "base", "aggressive"] as const).map((k) => (
-                  <div key={k}><Label htmlFor={k} hint="(%)">{k.charAt(0).toUpperCase() + k.slice(1)}</Label><Input id={k} type="number" min={0} max={100} step="any" value={inputs.scenarioLifts[k]} disabled={!canContribute} onChange={(ev) => setLift(k, Number(ev.target.value))} /></div>
+                  <NumberField key={k} id={k} label={k.charAt(0).toUpperCase() + k.slice(1)} unit="%" value={form[k]} onChange={(v) => set(k, v)} disabled={!canContribute} compact />
                 ))}
               </div>
             </div>
-            {canContribute && <div className="flex justify-end"><Button type="submit" loading={ctl.busy === "Calculating"}>Calculate</Button></div>}
+
+            <div className="flex flex-wrap items-center gap-3">
+              <div className={cn("flex min-w-0 flex-1 items-center gap-2 rounded-xl px-3 py-2 text-sm", preview ? "bg-brand-50 text-brand-900" : "bg-canvas text-muted")}>
+                <Calculator className="h-4 w-4 shrink-0" />
+                {preview ? (
+                  <span>
+                    Base case: <b>{preview.customersImpacted.toLocaleString("en")}</b> {model.impacted.toLowerCase()} → <b>{money(preview.incrementalRevenue, inputs.currency)}</b> revenue, <b>{money(preview.incrementalGrossProfit, inputs.currency)}</b> gross profit
+                    {preview.roi !== null ? <>, ROI <b>{Math.round(preview.roi * 100)}%</b></> : null}
+                  </span>
+                ) : (
+                  <span>Fill in the first three fields to see a live estimate.</span>
+                )}
+              </div>
+              {canContribute && <Button type="submit" loading={ctl.busy === "Calculating"}>Calculate</Button>}
+            </div>
+            <ErrorNote error={err} />
           </form>
         </CardBody>
       </Card>
 
       {e && (
         <Card>
-          <CardHeader title="Scenario model" description={e.disclaimer} />
+          <CardHeader title="Scenario model" description={e.disclaimer} action={<Badge>{shownModel.name}</Badge>} />
           <CardBody className="space-y-4">
             <ScenarioChart scenarios={e.scenarios} currency={e.inputs.currency} />
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="text-left text-xs uppercase tracking-wide text-muted">
-                  <tr>{["Scenario", "Lift", "Customers impacted", "Incremental revenue", "Gross profit", "Programme cost (12 mo)", "Net profit", "ROI", "Payback"].map((h) => <th key={h} className="pb-2 pr-3">{h}</th>)}</tr>
+                  <tr>{["Scenario", "Lift", shownModel.impacted, "Incremental revenue", "Gross profit", "Programme cost (12 mo)", "Net profit", "ROI", "Payback"].map((h) => <th key={h} className="pb-2 pr-3">{h}</th>)}</tr>
                 </thead>
                 <tbody className="divide-y divide-line tabular-nums">
                   {e.scenarios.map((s) => (
@@ -101,12 +204,94 @@ export function EconomicsView({ view, ctl, canContribute }: CaseTabProps) {
                 </tbody>
               </table>
             </div>
+            <RiskPanel inputs={e.inputs} />
             <p className="text-xs text-muted">
-              Revenue impact ≠ profit impact. Revenue = customers impacted × average annual value. Gross profit applies margin. Net profit deducts investment and 12 months of run cost. ROI = net profit ÷ programme cost. Payback = investment ÷ (monthly gross profit − monthly run cost).
+              {shownModel.impacted} = {shownModel.volume.label.toLowerCase()} × lift. Revenue = that × {shownModel.value.label.toLowerCase()}. Gross profit applies margin; net profit deducts the investment and 12 months of run cost. Revenue impact is not profit impact.
             </p>
           </CardBody>
         </Card>
       )}
+    </div>
+  );
+}
+
+/** Break-even, odds of paying back and what moves the result most. */
+function RiskPanel({ inputs }: { inputs: EconomicsInputs }) {
+  const be = breakEvenLift(inputs);
+  const mc = monteCarlo(inputs);
+  const sens = sensitivity(inputs);
+  const base = computeScenario(inputs, "base", inputs.scenarioLifts.base).netProfit;
+  const span = Math.max(1, ...sens.map((x) => Math.max(Math.abs(x.low - base), Math.abs(x.high - base))));
+  const cur = inputs.currency;
+  return (
+    <div className="grid gap-4 rounded-xl border border-line bg-canvas/40 p-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
+      <div className="space-y-3 text-sm">
+        <div className="text-xs font-semibold uppercase tracking-[0.12em] text-subtle">Decision view</div>
+        <div className="rounded-lg bg-white p-3 ring-1 ring-line">
+          <div className="text-muted">Break-even lift</div>
+          <div className="text-lg font-semibold">{be === null ? "n/a" : `${be}%`}</div>
+          <div className="text-xs text-muted">{be === null ? "Add value and margin to compute it." : be <= inputs.scenarioLifts.base ? `Below your base case (${inputs.scenarioLifts.base}%): pays back if the base case holds.` : `Above your base case (${inputs.scenarioLifts.base}%): needs better than expected results.`}</div>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <div className="rounded-lg bg-white p-3 ring-1 ring-line"><div className="text-xs text-muted">Chance of positive 12-mo profit</div><div className={cn("text-lg font-semibold", mc.probPositive >= 0.7 ? "text-emerald-600" : mc.probPositive >= 0.4 ? "text-amber-600" : "text-red-600")}>{Math.round(mc.probPositive * 100)}%</div></div>
+          <div className="rounded-lg bg-white p-3 ring-1 ring-line"><div className="text-xs text-muted">Chance of payback within 12 months</div><div className="text-lg font-semibold">{Math.round(mc.probPayback12 * 100)}%</div></div>
+        </div>
+        <div className="rounded-lg bg-white p-3 text-xs ring-1 ring-line">
+          <div className="text-muted">Net profit range ({mc.runs.toLocaleString("en")} simulations)</div>
+          <div className="mt-1 flex justify-between tabular-nums"><span>P10 {money(mc.p10, cur)}</span><span className="font-semibold">P50 {money(mc.p50, cur)}</span><span>P90 {money(mc.p90, cur)}</span></div>
+          <p className="mt-1 text-subtle">Lift drawn between your conservative and aggressive cases; volume and value ±10%, margin ±5%.</p>
+        </div>
+      </div>
+      <div className="text-sm">
+        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-subtle">What moves net profit most</div>
+        <div className="space-y-2">
+          {sens.map((x) => {
+            const left = ((Math.min(x.low, base) - base) / span) * 50;
+            const right = ((Math.max(x.high, base) - base) / span) * 50;
+            return (
+              <div key={x.driver} className="grid grid-cols-[minmax(0,10rem)_minmax(0,1fr)] items-center gap-2 text-xs">
+                <span className="truncate text-muted" title={x.driver}>{x.driver}</span>
+                <div className="relative h-5 rounded bg-white ring-1 ring-line">
+                  <span className="absolute inset-y-0 left-1/2 w-px bg-slate-300" />
+                  <span className="absolute inset-y-0.5 rounded-l bg-red-400" style={{ left: `${50 + left}%`, width: `${-left}%` }} />
+                  <span className="absolute inset-y-0.5 rounded-r bg-emerald-500" style={{ left: "50%", width: `${right}%` }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <p className="mt-2 text-xs text-subtle">Each bar shows base-case net profit ({money(base, cur)}) when that one input moves; the longest bar is the assumption to validate first.</p>
+      </div>
+    </div>
+  );
+}
+
+function NumberField({ id, label, hint, placeholder, unit, value, onChange, kind, disabled, compact }: {
+  id: string; label: string; hint?: string; placeholder?: string; unit?: string; value: string; onChange: (v: string) => void; kind?: KnowledgeKind; disabled?: boolean; compact?: boolean;
+}) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <div className="min-w-0">
+      <div className="flex items-start justify-between gap-2">
+        <Label htmlFor={id}>{label}</Label>
+        {kind && !compact && <KindBadge kind={kind} />}
+      </div>
+      <div className="relative">
+        <Input
+          id={id}
+          inputMode="decimal"
+          autoComplete="off"
+          placeholder={placeholder}
+          value={focused ? value : group(value)}
+          disabled={disabled}
+          onFocus={(ev) => { setFocused(true); ev.currentTarget.select(); }}
+          onBlur={() => setFocused(false)}
+          onChange={(ev) => onChange(ev.target.value.replace(/[^\d.,]/g, ""))}
+          className={cn("tabular-nums", unit && "pr-14")}
+        />
+        {unit && <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-subtle">{unit}</span>}
+      </div>
+      {hint && !compact && <p className="mt-1 text-xs text-muted">{hint}</p>}
     </div>
   );
 }

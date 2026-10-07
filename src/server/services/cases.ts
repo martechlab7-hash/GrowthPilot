@@ -17,6 +17,7 @@ import {
   type Organization,
   type Question,
   type TranscriptEntry,
+  type Dataset,
 } from "@/domain/types";
 import { classifyProblem } from "@/engine/classify";
 import { emptyContext, getNumber, isKnown, markUnknown, setField } from "@/engine/context";
@@ -27,16 +28,24 @@ import { assessMaturity } from "@/engine/maturity";
 import { overallProgress, stageProgress } from "@/engine/progress";
 import { prioritize } from "@/engine/prioritization";
 import { resourcesForAgents } from "./resources";
+import { memoryForAgents } from "./memory";
+import { benchmarksForAgents } from "./benchmarks";
 import { getIndustry, industryIdFromName } from "@/knowledge/industries";
 import type { AuthContext } from "../auth";
-import { badRequest, HttpError, notFound } from "../errors";
+import { badRequest, forbidden, HttpError, notFound } from "../errors";
 import { log } from "../logger";
+import { verifyEvidence, withAssessment } from "@/engine/verify";
+import { getEconomicsModel, modelForProblem } from "@/engine/economicsModels";
 import { inBackground } from "../background";
 import { can } from "../permissions";
+import { parseDelimited } from "@/lib/data/csv";
+import { detectPiiColumns, maskColumns, maskFreeText } from "@/lib/data/pii";
+import { profileTable } from "@/lib/data/profile";
+import { analyzeTable } from "@/lib/data/analyze";
 import { getStore } from "../store";
 import { audit } from "./org";
-import { gatewayFor } from "./providers";
-import { ActivityRecorder } from "./activity";
+import { gatewayFor, secondOpinion } from "./providers";
+import { ActivityRecorder, getActivity } from "./activity";
 import { assertAiQuota, PLAN_LIMITS } from "./usage";
 import { diffVersions } from "./versionDiff";
 
@@ -188,7 +197,19 @@ async function withAi<T>(
   const progress = new ActivityRecorder(auth.orgId, c.id, operation);
   progress.step("Started", `${Object.keys(c.context.fields).length} context facts · ${c.selectedFrameworks.length} diagnostic frameworks selected`);
   try {
-    const references = operation === "chat" ? undefined : await resourcesForAgents(auth.orgId).catch(() => undefined);
+    const deep = ["recommendations", "plan", "report", "diagnose", "hypotheses", "debate"].includes(operation);
+    const [links, memory, benchmarks] = operation === "chat" ? [undefined, undefined, undefined] : await Promise.all([
+      resourcesForAgents(auth.orgId).catch(() => undefined),
+      deep ? memoryForAgents(auth.orgId, c).catch(() => undefined) : Promise.resolve(undefined),
+      deep ? benchmarksForAgents(auth.orgId, getIndustry(c.industryId)?.name).catch(() => undefined) : Promise.resolve(undefined),
+    ]);
+    if (benchmarks) progress.analysis("Comparing with your sourced benchmarks", `${benchmarks.split("\n").length} benchmark(s) from your library`);
+    if (memory) progress.analysis("Checking your organisation's history", memory.split("\n").map((l) => l.split(":")[0]).join(" · "));
+    const references = [
+      links,
+      memory ? `ORGANISATION HISTORY (past cases and measured outcomes):\n${memory}` : undefined,
+      benchmarks ? `EXTERNAL BENCHMARKS (sourced by the organisation; external context, NOT the client's data; always name the source when used):\n${benchmarks}` : undefined,
+    ].filter(Boolean).join("\n\n") || undefined;
     if (references) progress.step("Knowledge base", `${references.split("\n").length} organization reference link(s) shared with the agents`);
     const result = await fn({ gateway, call: { organizationId: auth.orgId, userId: auth.uid, caseId: c.id }, progress, ...(references ? { references } : {}) });
     await progress.finish("succeeded");
@@ -610,7 +631,9 @@ export async function diagnose(auth: AuthContext, caseId: string, override: bool
   if (!r.ready && !override) {
     throw new HttpError(409, "Discovery is not complete enough for a reliable diagnosis.", "NOT_READY", r);
   }
-  const diagnosis = await withAi(auth, c, "diagnose", (deps) => agents.runDiagnosis(deps, c));
+  const raw = await withAi(auth, c, "diagnose", (deps) => agents.runDiagnosis(deps, c));
+  // Deterministic evidence check: "fact" labels without a confirmed source are downgraded.
+  const diagnosis = { ...raw, findings: raw.findings.map((f) => ({ ...f, evidence: verifyEvidence(c, f.evidence).items })) };
   if (!r.ready) {
     await decision(auth, caseId, {
       decision: "Proceeded to diagnosis with incomplete discovery",
@@ -637,19 +660,58 @@ export async function diagnose(auth: AuthContext, caseId: string, override: bool
 export async function generateHypotheses(auth: AuthContext, caseId: string) {
   const c = await loadCase(auth, caseId);
   if (!c.diagnosis) throw new HttpError(409, "Run the diagnosis before generating hypotheses.", "NO_DIAGNOSIS");
-  const fresh = await withAi(auth, c, "hypotheses", (deps) => agents.generateHypotheses(deps, c));
+  const fresh = (await withAi(auth, c, "hypotheses", (deps) => agents.generateHypotheses(deps, c))).map((h) => withAssessment(c, h));
   let updated = await mutate(auth, caseId, (cur) => {
     // Keep reviewed hypotheses (including rejections, which inform future runs).
     const reviewed = cur.hypotheses.filter((h) => h.status !== "proposed");
     return clearPending({
       ...cur,
       hypotheses: [...reviewed, ...fresh],
+      debateStatus: "pending",
       status: "validation",
       transcript: [...cur.transcript, entry("consultant", "decision", "Here is what I believe is happening. Please review each hypothesis before I build the strategy.")],
     });
   });
   updated = await snapshot(auth, updated, "Hypotheses generated");
+  // The debate panel stress-tests the new hypotheses after the response is sent.
+  await inBackground("hypotheses.debate", () => runDebate(auth, caseId, fresh.map((h) => h.id)));
+  if (process.env.VITEST) updated = await loadCase(auth, caseId);
   return withDerived(updated);
+}
+
+/**
+ * Devil's-advocate debate. Challengers run on a second provider when one is
+ * configured; results feed the rule-based confidence score.
+ */
+async function runDebate(auth: AuthContext, caseId: string, ids?: string[]) {
+  const c = await loadCase(auth, caseId);
+  const targets = c.hypotheses.filter((h) => h.status !== "disagreed" && (!ids || ids.includes(h.id)));
+  if (!targets.length) return;
+  const debater = auth.aiPreference ? auth : { ...auth, ...(await secondOpinion(auth.orgId).then((p) => (p ? { aiPreference: p } : {}))) };
+  try {
+    const debates = await withAi(debater, c, "debate", (deps) => agents.debateHypotheses(deps, c, targets), { flagPending: false });
+    const model = (await getActivity(auth.orgId, caseId))?.model;
+    await mutate(auth, caseId, (cur) => ({
+      ...cur,
+      debateStatus: "done",
+      hypotheses: cur.hypotheses.map((h) => {
+        const d = debates[h.id];
+        if (!d) return h;
+        return withAssessment(cur, { ...h, debate: { ...d, at: now(), ...(model ? { model } : {}) } });
+      }),
+    }));
+  } catch (err) {
+    log("warn", "hypotheses.debate_failed", { caseId, message: (err as Error).message });
+    await mutate(auth, caseId, (cur) => ({ ...cur, debateStatus: "failed" }));
+    throw err;
+  }
+}
+
+/** Re-run the debate on demand (all hypotheses that are not rejected). */
+export async function debate(auth: AuthContext, caseId: string) {
+  await mutate(auth, caseId, (cur) => ({ ...cur, debateStatus: "pending" }));
+  await runDebate(auth, caseId);
+  return withDerived(await loadCase(auth, caseId));
 }
 
 export async function reviewHypothesis(auth: AuthContext, caseId: string, hypothesisId: string, input: z.infer<typeof ReviewSchema>) {
@@ -699,6 +761,16 @@ export async function reviewHypothesis(auth: AuthContext, caseId: string, hypoth
       break;
     }
   }
+
+  // A reworded hypothesis needs a fresh debate; the evidence score is always recomputed.
+  if (revised.statement !== h.statement) {
+    const { debate: _stale, ...rest } = revised;
+    void _stale;
+    revised = rest as Hypothesis;
+  } else if (h.debate && !revised.debate) {
+    revised = { ...revised, debate: h.debate };
+  }
+  revised = withAssessment(c, revised);
 
   const updated = await mutate(auth, caseId, (cur) => ({
     ...cur,
@@ -804,25 +876,30 @@ export async function generatePlan(auth: AuthContext, caseId: string) {
 /* -------------------------------------------------------------------------- */
 
 /** Pre-fill economics inputs from known facts; anything else is an assumption. */
-export function economicsDefaults(c: Case): { inputs: EconomicsInputs; provenance: Record<string, KnowledgeKind> } {
-  const customers = getNumber(c.context, "business.customer_base_size");
-  const annual = getNumber(c.context, "economics.avg_annual_value");
+export function economicsDefaults(c: Case, modelId?: string): { inputs: EconomicsInputs; provenance: Record<string, KnowledgeKind> } {
+  const model = getEconomicsModel(modelId) ?? modelForProblem(c.problemTypes);
+  const first = (keys: string[]) => keys.map((k) => getNumber(c.context, k)).find((v) => v !== undefined);
+  const volume = first(model.volumeKeys);
+  const value = first(model.valueKeys);
   const margin = getNumber(c.context, "economics.gross_margin_pct");
   const topLift = c.recommendations.find((r) => r.expectedLiftPct !== undefined)?.expectedLiftPct;
-  const base = topLift ?? 10;
+  const lifts = topLift !== undefined && topLift > 0
+    ? { conservative: Math.max(1, Math.round(topLift / 2)), base: topLift, aggressive: Math.min(100, Math.round(topLift * 1.75)) }
+    : model.lifts;
   return {
     inputs: {
       currency: c.currency,
-      eligibleCustomers: customers ?? 0,
-      averageAnnualValue: annual ?? 0,
+      model: model.id,
+      eligibleCustomers: volume ?? 0,
+      averageAnnualValue: value ?? 0,
       grossMarginPct: margin ?? 0,
       investment: 0,
       monthlyRunCost: 0,
-      scenarioLifts: { conservative: Math.max(1, Math.round(base / 2)), base, aggressive: base * 2 },
+      scenarioLifts: lifts,
     },
     provenance: {
-      eligibleCustomers: customers !== undefined ? "fact" : "assumption",
-      averageAnnualValue: annual !== undefined ? "fact" : "assumption",
+      eligibleCustomers: volume !== undefined ? "fact" : "assumption",
+      averageAnnualValue: value !== undefined ? "fact" : "assumption",
       grossMarginPct: margin !== undefined ? "fact" : "assumption",
       investment: "assumption",
       monthlyRunCost: "assumption",
@@ -834,7 +911,7 @@ export function economicsDefaults(c: Case): { inputs: EconomicsInputs; provenanc
 export async function saveEconomics(auth: AuthContext, caseId: string, raw: unknown) {
   const inputs = EconomicsInputsSchema.parse(raw);
   const c = await loadCase(auth, caseId);
-  const defaults = economicsDefaults(c);
+  const defaults = economicsDefaults(c, inputs.model);
   // An input is a fact only if it matches a user-provided fact in the case context.
   const provenance: Record<string, KnowledgeKind> = {
     eligibleCustomers: defaults.provenance.eligibleCustomers === "fact" && inputs.eligibleCustomers === defaults.inputs.eligibleCustomers ? "fact" : "assumption",
@@ -899,4 +976,170 @@ export async function exportCaseData(auth: AuthContext, caseId: string) {
   const c = await loadCase(auth, caseId);
   const history = await listHistory(auth, caseId);
   return { exportedAt: now(), case: c, decisions: history.decisions, versions: history.versions };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Shared data                                                                 */
+/* -------------------------------------------------------------------------- */
+
+const MAX_DATASETS = 10;
+
+export const DatasetInputSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  kind: z.enum(["table", "text"]),
+  /** Already masked in the browser; masked again here as a safety net. */
+  content: z.string().min(1).max(3_000_000),
+  note: z.string().trim().max(500).optional(),
+  maskedColumns: z.array(z.string().max(200)).max(200).default([]),
+  removedColumns: z.array(z.string().max(200)).max(200).default([]),
+  /** Columns the user confirmed are not personal (only honoured for name-based flags). */
+  keptColumns: z.array(z.string().max(200)).max(200).default([]),
+});
+
+/**
+ * Store a shared dataset as a compact, PII-masked profile (column stats and a
+ * short sample). The raw file is never persisted.
+ */
+export async function addDataset(auth: AuthContext, caseId: string, input: z.infer<typeof DatasetInputSchema>) {
+  const current = await loadCase(auth, caseId);
+  if ((current.datasets?.length ?? 0) >= MAX_DATASETS) throw badRequest(`A case can hold up to ${MAX_DATASETS} datasets. Remove one first.`);
+  const base = {
+    id: id("ds"),
+    name: input.name,
+    ...(input.note ? { note: input.note } : {}),
+    sizeBytes: Buffer.byteLength(input.content),
+    createdAt: now(),
+    createdBy: auth.uid,
+  };
+  let ds: Dataset;
+  if (input.kind === "table") {
+    let table = parseDelimited(input.content);
+    if (!table.headers.length || !table.rows.length) throw badRequest("The file has no data rows. Check that the first row contains column names.");
+    // Server-side safety net: anything that still looks personal is pseudonymised.
+    const kept = new Set(input.keptColumns);
+    const leftover = detectPiiColumns(table).filter((p) => !(kept.has(p.name) && p.reason.startsWith("column name")));
+    if (leftover.length) table = maskColumns(table, leftover.map((p) => p.index), []);
+    const profile = profileTable(table);
+    const analyses = analyzeTable(table, input.name);
+    ds = {
+      ...base, kind: "table", rowCount: profile.rowCount, columns: profile.columns, sample: maskFreeText(profile.sample).text,
+      ...(analyses.length ? { analyses } : {}),
+      maskedColumns: [...new Set([...input.maskedColumns, ...leftover.map((p) => p.name)])], removedColumns: input.removedColumns,
+    };
+  } else {
+    const masked = maskFreeText(input.content);
+    ds = { ...base, kind: "text", excerpt: masked.text.slice(0, 8000), maskedColumns: [], removedColumns: [], maskedItems: masked.masked };
+  }
+  const updated = await mutate(auth, caseId, (c) => ({
+    ...c,
+    datasets: [...(c.datasets ?? []), ds],
+    analysisStale: c.analysisStale || !!c.diagnosis,
+    transcript: [
+      ...c.transcript,
+      entry("user", "message", ds.kind === "table" ? `Shared data: ${ds.name} (${ds.rowCount} rows, ${ds.columns?.length} columns)` : `Shared notes: ${ds.name}`),
+      ...(ds.analyses?.length ? [entry("consultant", "message", `I analysed ${ds.name}: ${ds.analyses.map((a) => a.findings[0]).join(" ")}`)] : []),
+    ].slice(-400),
+  }));
+  await audit(auth.orgId, auth.uid, "case.dataset.add", caseId, { dataset: ds.id, kind: ds.kind, masked: ds.maskedColumns.length });
+  return withDerived(updated);
+}
+
+export async function removeDataset(auth: AuthContext, caseId: string, datasetId: string) {
+  const updated = await mutate(auth, caseId, (c) => ({ ...c, datasets: (c.datasets ?? []).filter((d) => d.id !== datasetId) }));
+  await audit(auth.orgId, auth.uid, "case.dataset.remove", caseId, { dataset: datasetId });
+  return withDerived(updated);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Outcomes                                                                    */
+/* -------------------------------------------------------------------------- */
+
+export const OutcomeInputSchema = z.object({
+  status: z.enum(["planned", "live", "completed", "dropped"]),
+  actualLiftPct: z.number().min(-100).max(1000).optional(),
+  notes: z.string().trim().max(1000).optional(),
+});
+
+/** Record what a recommendation actually delivered (feeds calibration of future forecasts). */
+export async function recordOutcome(auth: AuthContext, caseId: string, recommendationId: string, input: z.infer<typeof OutcomeInputSchema>) {
+  const c = await loadCase(auth, caseId);
+  const r = c.recommendations.find((x) => x.id === recommendationId);
+  if (!r) throw notFound("Recommendation");
+  if (input.status === "completed" && input.actualLiftPct === undefined) throw badRequest("Enter the measured lift to complete an initiative.");
+  const outcome = {
+    status: input.status,
+    ...(input.actualLiftPct !== undefined ? { actualLiftPct: input.actualLiftPct } : {}),
+    ...(r.expectedLiftPct !== undefined ? { forecastLiftPct: r.expectedLiftPct } : {}),
+    ...(input.notes ? { notes: input.notes } : {}),
+    recordedAt: now(),
+    recordedBy: auth.uid,
+  };
+  const updated = await mutate(auth, caseId, (cur) => ({
+    ...cur,
+    recommendations: cur.recommendations.map((x) => (x.id === recommendationId ? { ...x, outcome } : x)),
+    transcript: [...cur.transcript, entry("user", "decision", `Outcome for "${r.title}": ${input.status}${input.actualLiftPct !== undefined ? `, measured lift ${input.actualLiftPct}% (forecast ${r.expectedLiftPct ?? "n/a"}%)` : ""}`)].slice(-400),
+  }));
+  await audit(auth.orgId, auth.uid, "case.outcome", caseId, { recommendation: recommendationId, status: input.status });
+  return withDerived(updated);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Collaboration                                                               */
+/* -------------------------------------------------------------------------- */
+
+export const CommentInputSchema = z.object({
+  target: z.enum(["case", "hypothesis", "recommendation"]),
+  targetId: z.string().max(80),
+  text: z.string().trim().min(1).max(2000),
+});
+
+export async function addComment(auth: AuthContext, caseId: string, input: z.infer<typeof CommentInputSchema>) {
+  const c = await loadCase(auth, caseId);
+  if (input.target === "hypothesis" && !c.hypotheses.some((h) => h.id === input.targetId)) throw notFound("Hypothesis");
+  if (input.target === "recommendation" && !c.recommendations.some((r) => r.id === input.targetId)) throw notFound("Recommendation");
+  const comment = {
+    id: id("cmt"), ...input,
+    by: auth.uid,
+    byName: auth.profile?.displayName && !auth.profile.displayName.includes("@") ? auth.profile.displayName : auth.name.split("@")[0] ?? "Teammate",
+    at: now(),
+  };
+  const updated = await mutate(auth, caseId, (cur) => ({ ...cur, comments: [...(cur.comments ?? []), comment].slice(-500) }));
+  return withDerived(updated);
+}
+
+export async function deleteComment(auth: AuthContext, caseId: string, commentId: string) {
+  const c = await loadCase(auth, caseId);
+  const cm = (c.comments ?? []).find((x) => x.id === commentId);
+  if (!cm) throw notFound("Comment");
+  if (cm.by !== auth.uid && !(auth.profile && can(auth.profile.role, "case.manage"))) throw forbidden("You can only delete your own comments.");
+  return withDerived(await mutate(auth, caseId, (cur) => ({ ...cur, comments: (cur.comments ?? []).filter((x) => x.id !== commentId) })));
+}
+
+export const ShareInputSchema = z.object({ audience: z.enum(["full", "executive", "crm", "data"]).default("executive") });
+
+/** Create (or rotate) the read-only report link. Rotating invalidates the old link. */
+export async function shareReport(auth: AuthContext, caseId: string, input: z.infer<typeof ShareInputSchema>) {
+  const c = await loadCase(auth, caseId);
+  if (!c.recommendations.length) throw new HttpError(409, "Build recommendations before sharing the report.", "NOTHING_TO_SHARE");
+  const token = Buffer.from(crypto.getRandomValues(new Uint8Array(24))).toString("base64url");
+  const updated = await mutate(auth, caseId, (cur) => ({ ...cur, shareToken: token, share: { audience: input.audience, createdAt: now(), createdBy: auth.uid } }));
+  await audit(auth.orgId, auth.uid, "case.share", caseId, { audience: input.audience });
+  return withDerived(updated);
+}
+
+export async function revokeShare(auth: AuthContext, caseId: string) {
+  const updated = await mutate(auth, caseId, (cur) => {
+    const { shareToken: _t, share: _s, ...rest } = cur;
+    void _t; void _s;
+    return rest as Case;
+  });
+  await audit(auth.orgId, auth.uid, "case.share.revoke", caseId);
+  return withDerived(updated);
+}
+
+/** Public, read-only lookup by share token (no sign-in). Returns null for unknown or revoked tokens. */
+export async function sharedCase(token: string): Promise<Case | null> {
+  if (!/^[A-Za-z0-9_-]{24,64}$/.test(token)) return null;
+  const rows = await cases().query({ where: [["shareToken", "==", token]], limit: 1 });
+  return rows[0] ?? null;
 }

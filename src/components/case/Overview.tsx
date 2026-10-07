@@ -1,5 +1,6 @@
 "use client";
 
+import { SimilarCases } from "./SimilarCases";
 import { FrameworkInfoButton } from "@/components/frameworks/FrameworkGuide";
 import { Badge, Button, Card, CardBody, CardHeader, KindBadge } from "@/components/ui";
 import { formatValue, humanizeKey } from "@/engine/context";
@@ -82,6 +83,7 @@ export function Overview({ view, go }: CaseTabProps) {
           {!derived.frameworks.length && <p className="text-sm text-muted">Frameworks will be selected once the problem type is clearer.</p>}
         </CardBody>
       </Card>
+      <SimilarCases caseId={c.id} />
     </div>
   );
 }

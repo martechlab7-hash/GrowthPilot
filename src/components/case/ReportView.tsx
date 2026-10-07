@@ -1,10 +1,11 @@
 "use client";
 
+import { Flowchart } from "@/components/charts/Flowchart";
 import { useEffect, useState } from "react";
-import { Download, FileText, Map as MapIcon } from "lucide-react";
+import { Download, FileText, Link2, Map as MapIcon } from "lucide-react";
 import { Button, Card, CardBody, CardHeader, EmptyState, ErrorNote, Select, Spinner } from "@/components/ui";
 import { apiDownload, apiFetch } from "@/lib/client/api";
-import type { Block, ReportModel } from "@/reports/model";
+import { AUDIENCES, forAudience, type Audience, type Block, type ReportModel } from "@/reports/model";
 import type { CaseTabProps } from "./Workspace";
 
 export function RoadmapView({ view, ctl, canManage, go }: CaseTabProps) {
@@ -61,6 +62,8 @@ export function BlockView({ b }: { b: Block }) {
           </table>
         </div>
       );
+    case "flow":
+      return <div className="overflow-x-auto rounded-xl border border-line bg-canvas/50 p-4"><Flowchart steps={b.steps} /></div>;
   }
 }
 
@@ -68,6 +71,7 @@ export function ReportView({ view, ctl, canManage }: CaseTabProps) {
   const c = view.case;
   const [model, setModel] = useState<ReportModel | null>(null);
   const [brand, setBrand] = useState<"saved" | "default">("saved");
+  const [audience, setAudience] = useState<Audience>("full");
   const [downloading, setDownloading] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -79,13 +83,15 @@ export function ReportView({ view, ctl, canManage }: CaseTabProps) {
     setDownloading(format);
     setErr(null);
     try {
-      await apiDownload(`/api/cases/${c.id}/report/export?format=${format}&brand=${brand}`);
+      await apiDownload(`/api/cases/${c.id}/report/export?format=${format}&brand=${brand}&audience=${audience}`);
     } catch (e) {
       setErr((e as Error).message);
     } finally {
       setDownloading(null);
     }
   };
+
+  const shown = model ? forAudience(model, audience) : null;
 
   if (!c.recommendations.length) {
     return <EmptyState icon={<FileText className="h-8 w-8" />} title="The report comes last" description="Complete discovery, validate hypotheses and build recommendations first. A report is never produced from unvalidated hypotheses." />;
@@ -100,6 +106,12 @@ export function ReportView({ view, ctl, canManage }: CaseTabProps) {
           action={canManage && <Button variant={c.report ? "outline" : "primary"} loading={ctl.busy === "Writing report"} onClick={() => ctl.run("Writing report", "/report")}>{c.report ? "Regenerate narrative" : "Generate report"}</Button>}
         />
         <CardBody className="flex flex-wrap items-end gap-3">
+          <div className="w-60">
+            <label className="mb-1.5 block text-sm font-medium" htmlFor="audience">Who is it for?</label>
+            <Select id="audience" value={audience} onChange={(e) => setAudience(e.target.value as Audience)}>
+              {(Object.entries(AUDIENCES) as [Audience, (typeof AUDIENCES)[Audience]][]).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+            </Select>
+          </div>
           <div className="w-64">
             <label className="mb-1.5 block text-sm font-medium" htmlFor="brand">Would you like to apply your brand guidelines?</label>
             <Select id="brand" value={brand} onChange={(e) => setBrand(e.target.value as "saved" | "default")}>
@@ -119,24 +131,26 @@ export function ReportView({ view, ctl, canManage }: CaseTabProps) {
         </CardBody>
       </Card>
 
-      {!model ? (
+      {canManage && <ShareLink c={c} ctl={ctl} audience={audience} />}
+
+      {!shown ? (
         <Spinner label="Building report…" />
       ) : (
-        <article className="rounded-2xl border border-line bg-white px-6 py-10 shadow-card sm:px-10" style={{ fontFamily: model.brand.fontFamily }}>
+        <article className="rounded-2xl border border-line bg-white px-6 py-10 shadow-card sm:px-10" style={{ fontFamily: shown.brand.fontFamily }}>
           <header className="mb-8 border-b border-line pb-6">
-            {model.brand.logoDataUrl && (
+            {shown.brand.logoDataUrl && (
               // eslint-disable-next-line @next/next/no-img-element -- data URL from brand settings
-              <img src={model.brand.logoDataUrl} alt={`${model.companyName || "Company"} logo`} className="mb-5 max-h-12 max-w-[220px] object-contain" />
+              <img src={shown.brand.logoDataUrl} alt={`${shown.companyName || "Company"} logo`} className="mb-5 max-h-12 max-w-[220px] object-contain" />
             )}
-            <div className="h-1 w-16 rounded" style={{ background: model.brand.accentColor }} />
-            <h1 className="mt-4 text-3xl font-semibold tracking-tight" style={{ color: model.brand.primaryColor, fontFamily: model.brand.headingFont || model.brand.fontFamily }}>{model.title}</h1>
-            {model.brand.tagline && <p className="mt-1 text-sm italic text-muted">{model.brand.tagline}</p>}
-            <p className="mt-1 text-muted">{model.subtitle}{model.companyName ? ` · ${model.companyName}` : ""} · {model.generatedAt.slice(0, 10)}</p>
+            <div className="h-1 w-16 rounded" style={{ background: shown.brand.accentColor }} />
+            <h1 className="mt-4 text-3xl font-semibold tracking-tight" style={{ color: shown.brand.primaryColor, fontFamily: shown.brand.headingFont || shown.brand.fontFamily }}>{shown.title}</h1>
+            {shown.brand.tagline && <p className="mt-1 text-sm italic text-muted">{shown.brand.tagline}</p>}
+            <p className="mt-1 text-muted">{shown.subtitle}{shown.companyName ? ` · ${shown.companyName}` : ""} · {shown.generatedAt.slice(0, 10)}</p>
           </header>
           <div className="space-y-10">
-            {model.sections.map((s) => (
+            {shown.sections.map((s) => (
               <section key={s.id} className="space-y-3">
-                <h2 className="text-lg font-semibold" style={{ color: model.brand.primaryColor, fontFamily: model.brand.headingFont || model.brand.fontFamily }}>{s.title}</h2>
+                <h2 className="text-lg font-semibold" style={{ color: shown.brand.primaryColor, fontFamily: shown.brand.headingFont || shown.brand.fontFamily }}>{s.title}</h2>
                 {s.blocks.map((b, i) => <BlockView key={i} b={b} />)}
               </section>
             ))}
@@ -144,5 +158,38 @@ export function ReportView({ view, ctl, canManage }: CaseTabProps) {
         </article>
       )}
     </div>
+  );
+}
+
+/** Read-only link for stakeholders without an account; rotate or revoke at any time. */
+function ShareLink({ c, ctl, audience }: { c: CaseTabProps["view"]["case"]; ctl: CaseTabProps["ctl"]; audience: Audience }) {
+  const [copied, setCopied] = useState(false);
+  const url = c.shareToken && typeof window !== "undefined" ? `${window.location.origin}/share/${c.shareToken}` : null;
+  return (
+    <Card className="no-print">
+      <CardBody className="flex flex-wrap items-center gap-3 text-sm">
+        <Link2 className="h-4 w-4 text-brand-600" />
+        <div className="min-w-0 flex-1">
+          <div className="font-semibold">Share a read-only link</div>
+          {url ? (
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <code className="max-w-full truncate rounded bg-canvas px-2 py-1 text-xs">{url}</code>
+              <span className="text-xs text-muted">Shows the {AUDIENCES[(c.share?.audience as Audience) ?? "executive"]?.label ?? "report"}. Anyone with the link can view it; no sign-in.</span>
+            </div>
+          ) : (
+            <p className="text-muted">Stakeholders without an account can view the {AUDIENCES[audience].label.toLowerCase()} (chosen above). Revoke the link at any time.</p>
+          )}
+        </div>
+        {url ? (
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={async () => { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 2000); }}>{copied ? "Copied" : "Copy link"}</Button>
+            <Button size="sm" variant="outline" loading={ctl.busy === "Sharing"} onClick={() => ctl.run("Sharing", "/share", { body: { audience } })}>New link</Button>
+            <Button size="sm" variant="ghost" loading={ctl.busy === "Revoking"} onClick={() => ctl.run("Revoking", "/share", { method: "DELETE" })}>Revoke</Button>
+          </div>
+        ) : (
+          <Button size="sm" loading={ctl.busy === "Sharing"} onClick={() => ctl.run("Sharing", "/share", { body: { audience } })}>Create link</Button>
+        )}
+      </CardBody>
+    </Card>
   );
 }

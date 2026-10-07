@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, CheckCircle2, CircleDashed, Lightbulb, Lock, Pencil, ThumbsDown, ThumbsUp, X } from "lucide-react";
 import type { Hypothesis } from "@/domain/types";
 import { Badge, Button, Card, CardBody, ConfidenceBadge, EmptyState, ErrorNote, Textarea } from "@/components/ui";
@@ -8,6 +8,8 @@ import { OwlSays } from "@/components/mascot";
 import { timeAgo } from "@/lib/labels";
 import { cn } from "@/lib/cn";
 import { EvidenceList } from "./DiagnosisView";
+import { DebatePanel, PanelLineup } from "./DebatePanel";
+import { CommentThread } from "./CommentThread";
 import type { CaseTabProps } from "./Workspace";
 
 const STATUS: Record<Hypothesis["status"], { label: string; tone: "neutral" | "green" | "amber" | "red"; you: string; border: string }> = {
@@ -24,6 +26,19 @@ export function Hypotheses({ view, ctl, canManage, go }: CaseTabProps) {
   const reviewed = all.filter((h) => h.status !== "proposed").length;
   const pending = all.length - reviewed;
   const anyAgreed = all.some((h) => h.status === "agreed" || h.status === "partially_agreed");
+  const debating = c.debateStatus === "pending" || ctl.busy === "Debating";
+  // The debate runs in the background after hypotheses are generated: refresh until it lands.
+  const polls = useRef(0);
+  const reload = ctl.reload;
+  const waiting = c.debateStatus === "pending" && !ctl.busy;
+  useEffect(() => {
+    if (!waiting) return;
+    const t = setInterval(() => {
+      if (++polls.current > 60) return clearInterval(t);
+      void reload();
+    }, 3000);
+    return () => clearInterval(t);
+  }, [waiting, reload]);
 
   if (!c.diagnosis) {
     return <EmptyState icon={<Lightbulb className="h-8 w-8" />} title="Diagnosis needed first" description="Hypotheses are built from the diagnosis." action={<Button onClick={() => go("diagnosis")}>Go to diagnosis</Button>} />;
@@ -86,12 +101,33 @@ export function Hypotheses({ view, ctl, canManage, go }: CaseTabProps) {
         </CardBody>
       </Card>
 
-      {all.map((h, i) => <HypothesisCard key={h.id} h={h} index={i + 1} ctl={ctl} canManage={canManage} />)}
+      <Card>
+        <CardBody className="flex flex-wrap items-center gap-4">
+          <PanelLineup busy={debating} />
+          <div className="min-w-0 flex-1 text-sm">
+            <div className="font-semibold">Devil&apos;s-advocate panel</div>
+            <p className="text-muted">
+              {debating
+                ? "Seven challengers (data skeptic, statistician, finance, customer, market, operations, contrarian) are attacking each hypothesis. Pilot defends with evidence; the Judge rules."
+                : c.debateStatus === "failed"
+                  ? "The debate couldn't run (the AI provider didn't respond). Your hypotheses are unchanged. Try again."
+                  : "Each hypothesis was challenged before you see it. Read the strongest case against it, then decide."}
+            </p>
+          </div>
+          {canManage && !debating && (
+            <Button size="sm" variant="outline" loading={ctl.busy === "Debating"} onClick={() => ctl.run("Debating", "/hypotheses/debate")}>
+              {all.some((h) => h.debate) ? "Re-run the debate" : "Run the debate"}
+            </Button>
+          )}
+        </CardBody>
+      </Card>
+
+      {all.map((h, i) => <HypothesisCard key={h.id} h={h} index={i + 1} ctl={ctl} canManage={canManage} debating={debating && !h.debate && h.status !== "disagreed"} comments={c.comments ?? []} />)}
     </div>
   );
 }
 
-function HypothesisCard({ h, index, ctl, canManage }: { h: Hypothesis; index: number; ctl: CaseTabProps["ctl"]; canManage: boolean }) {
+function HypothesisCard({ h, index, ctl, canManage, debating, comments }: { h: Hypothesis; index: number; ctl: CaseTabProps["ctl"]; canManage: boolean; debating: boolean; comments: NonNullable<CaseTabProps["view"]["case"]["comments"]> }) {
   const [mode, setMode] = useState<null | "partially_agree" | "disagree" | "edit">(null);
   const [changing, setChanging] = useState(false);
   const [text, setText] = useState("");
@@ -143,6 +179,8 @@ function HypothesisCard({ h, index, ctl, canManage }: { h: Hypothesis; index: nu
           </div>
         </div>
 
+        {h.status !== "disagreed" && <DebatePanel h={h} debating={debating} />}
+
         {h.clarifyingQuestions.length > 0 && (
           <div className="rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900">
             <div className="font-medium">To resolve this I&apos;d like to know (added to the interview):</div>
@@ -191,6 +229,7 @@ function HypothesisCard({ h, index, ctl, canManage }: { h: Hypothesis; index: nu
             <ErrorNote error={error} />
           </div>
         )}
+        <CommentThread target="hypothesis" targetId={h.id} comments={comments} ctl={ctl} />
       </CardBody>
     </Card>
   );

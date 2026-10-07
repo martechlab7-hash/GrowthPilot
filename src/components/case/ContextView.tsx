@@ -6,6 +6,7 @@ import { Button, Card, CardBody, CardHeader, ErrorNote, Input, KindBadge, Label,
 import { MaturityBars } from "@/components/charts";
 import { formatValue, humanizeKey } from "@/engine/context";
 import type { CaseTabProps } from "./Workspace";
+import { DataShare } from "./DataShare";
 
 const STAGE_MAP: Record<"business" | "customer" | "data" | "technology", { title: string; stages: Stage[]; prefix: string }> = {
   business: { title: "Business & Performance", stages: ["business", "diagnosis", "economics"], prefix: "business" },
@@ -26,6 +27,7 @@ export function ContextView({ view, ctl, canContribute, stage }: CaseTabProps & 
 
   return (
     <div className="space-y-5">
+      {stage === "data" && <DataShare view={view} ctl={ctl} canContribute={canContribute} canManage={false} go={() => {}} />}
       <Card>
         <CardHeader title={cfg.title} description="Everything the AI knows about this area. Facts come from you; inferences and assumptions are labelled." />
         <CardBody>

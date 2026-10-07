@@ -17,13 +17,25 @@ function fixture(req: ChatRequest): unknown {
   prompts.push(prompt);
   const ev = [{ statement: "Repeat bookings fell", kind: "fact", sourceKeys: ["performance.metric_current"] }];
   if (sys.includes("Extract structured facts")) return { facts: [{ key: "business.geography", value: "India", confidence: "high" }, { key: "business.industry", value: "Not an option", confidence: "high" }], problemTypes: ["retention"] };
+  if (sys.includes("devil's-advocate debate")) {
+    const ids = [...new Set(prompt.match(/hyp_[a-f0-9]{8}/g) ?? [])];
+    return { debates: ids.map((id, i) => ({
+      hypothesisId: id,
+      challenges: [
+        { panelistId: "statistician", argument: "Repeat bookings dip every winter; this may be seasonality.", alternative: "Seasonal dip", wouldChangeMind: "Same months last year were flat" },
+        { panelistId: "not_a_panelist", argument: "ignored" },
+      ],
+      defense: { argument: "Last winter repeat rate held at 38%, so seasonality does not explain the drop.", evidence: ["Repeat rate fell"] },
+      verdict: { outcome: i === 0 ? "survives" : "weakened", confidence: 0.7, reasoning: "Seasonality is ruled out by the prior-year comparison.", settleWith: ["Compare cohorts year on year"] },
+    })) };
+  }
   if (sys.includes("Interview Planner")) return { metric: "repeat bookings", focus: "We'll find which passengers stopped rebooking, and why.", questions: [
     { id: "perf-onset", relevant: true, prompt: "When did repeat bookings start to slide, and was the drop sudden or gradual?" },
     { id: "biz-geo", relevant: false },
     { id: "made-up-id", relevant: true, prompt: "Ignored because the id is unknown" },
   ] };
   if (sys.includes("Interview Agent")) return { consultantNote: "Need route data.", followUps: [{ slug: "route_mix", prompt: "Which routes declined?", why: "Isolates network effects", stage: "diagnosis", category: "PERFORMANCE", input: "longtext", businessImpact: 4, diagnosticValue: 5, decisionRelevance: 4 }] };
-  if (sys.includes("Diagnostic Agent")) return { summary: "Decline concentrated in frequent flyers.", findings: [{ finding: "Frequent flyers book less", stage: "customer", evidence: ev, confidence: 0.7, impact: "high" }], confidence: 0.7, highConfidence: ["Repeat rate fell"], mediumConfidence: [], lowConfidence: ["Competitor pricing"], dataGaps: [{ dataset: "Competitor fares", whyNeeded: "Price effect", expectedInsight: "Elasticity", priority: "high", alternativeProxy: "Fare scraping" }], assumptions: [{ statement: "Fares unchanged", impact: "high", confidence: "low", validate: true }] };
+  if (sys.includes("Diagnostic Agent")) return { thinking_summary: ["Compared frequent-flyer cohorts before and after March", "Ruled out seasonality: the dip persists year on year"], summary: "Decline concentrated in frequent flyers.", findings: [{ finding: "Frequent flyers book less", stage: "customer", evidence: ev, confidence: 0.7, impact: "high" }], confidence: 0.7, highConfidence: ["Repeat rate fell"], mediumConfidence: [], lowConfidence: ["Competitor pricing"], dataGaps: [{ dataset: "Competitor fares", whyNeeded: "Price effect", expectedInsight: "Elasticity", priority: "high", alternativeProxy: "Fare scraping" }], assumptions: [{ statement: "Fares unchanged", impact: "high", confidence: "low", validate: true }] };
   if (sys.includes("Hypothesis Agent")) return { hypotheses: [
     { statement: "Retention decline is driven by frequent flyers lapsing", driver: "Loyalty", evidence: ev, missingEvidence: ["Cohort data"], confidence: 0.72, businessImpact: "high" },
     { statement: "Competitor price cuts drive switching", driver: "Price", evidence: [], missingEvidence: ["Fare index"], confidence: 0.4, businessImpact: "medium" },
@@ -110,6 +122,18 @@ describe("consulting lifecycle", () => {
     expect(industryQ?.suggested).toBe("Airlines");
     expect(tailored.interview.focus).toContain("passengers");
 
+    // Shared data is stored as a masked profile: personal data never persists.
+    const shared = await svc.addDataset(auth, created.id, svc.DatasetInputSchema.parse({
+      name: "Bookings by route",
+      kind: "table",
+      content: "email,route,month,bookings\nnaman@example.com,DEL-BOM,2026-01,4\npriya@example.com,DEL-BLR,2026-02,2",
+    }));
+    const ds = shared.case.datasets![0]!;
+    expect(ds.rowCount).toBe(2);
+    expect(ds.maskedColumns).toContain("email");
+    expect(JSON.stringify(ds)).not.toContain("example.com");
+    expect(ds.columns!.find((c) => c.name === "bookings")).toMatchObject({ type: "number", sum: 6 });
+
     // Diagnosis is gated on discovery readiness.
     await expect(svc.diagnose(auth, created.id, false)).rejects.toMatchObject({ code: "NOT_READY" });
 
@@ -131,8 +155,22 @@ describe("consulting lifecycle", () => {
     expect(deeper.case.adaptiveQuestions.map((q) => q.key)).toContain("performance.ai_route_mix");
 
     await svc.diagnose(auth, created.id, false);
+    // The activity log shows what was analysed and the model's reasoning summary; the summary is not stored on the case.
+    const { getActivity } = await import("./activity");
+    const act = await getActivity("org1", created.id);
+    expect(act!.steps.some((s) => s.kind === "thinking" && s.label.includes("Ruled out seasonality"))).toBe(true);
+    expect(act!.steps.some((s) => s.kind === "analysis" && s.label === "Using data you shared")).toBe(true);
+    expect(act!.history?.length).toBeGreaterThan(0);
+    expect(JSON.stringify((await svc.getCase(auth, created.id)).case.diagnosis)).not.toContain("thinking_summary");
     let view = await svc.generateHypotheses(auth, created.id);
     expect(view.case.status).toBe("validation");
+    // Every hypothesis is evidence-checked and stress-tested by the debate panel.
+    expect(view.case.debateStatus).toBe("done");
+    const debated = view.case.hypotheses[0]!;
+    expect(debated.debate?.challenges.map((ch) => ch.panelistId)).toEqual(["statistician"]);
+    expect(debated.debate?.verdict.outcome).toBe("survives");
+    expect(debated.assessment?.basis).toContain("Debate verdict: survives");
+    expect(view.case.hypotheses[1]!.assessment!.score).toBeLessThan(debated.assessment!.score);
     const [h1, h2] = view.case.hypotheses;
 
     // The approval gate blocks the strategy until every hypothesis is reviewed.
@@ -153,18 +191,58 @@ describe("consulting lifecycle", () => {
     // The rejected hypothesis was passed to the agent as rejected, with the user's reason.
     expect(prompts.at(-1)).toContain("Our fares did not change");
 
+    // Closing the loop: a completed outcome feeds the organisation's track record.
+    {
+      const memory = await import("./memory");
+      const rec = view.case.recommendations[0]!;
+      await expect(svc.recordOutcome(auth, created.id, rec.id, { status: "completed" })).rejects.toMatchObject({ status: 400 });
+      view = await svc.recordOutcome(auth, created.id, rec.id, { status: "completed", actualLiftPct: 4, notes: "Holdout test, 8 weeks" });
+      expect(view.case.recommendations[0]!.outcome).toMatchObject({ status: "completed", actualLiftPct: 4, forecastLiftPct: 8 });
+      const record = await memory.trackRecord("org1");
+      expect(record).toMatchObject({ completed: 1, ratio: 0.5, hitRate: 0 });
+      expect((await memory.trackRecord("org2")).completed).toBe(0);
+      // A new, similar case finds this one as precedent.
+      const twin = await svc.createCase(auth, { name: "Airline repeat bookings", problemStatement: "Repeat bookings for our airline keep declining among frequent flyers.", currency: "INR" });
+      const similar = await memory.similarCases("org1", twin);
+      expect(similar[0]?.id).toBe(created.id);
+      expect(similar[0]?.recommendations[0]?.outcome).toContain("delivered 4% lift");
+      await svc.deleteCase(auth, twin.id);
+    }
     view = await svc.generatePlan(auth, created.id);
     expect(view.case.journeys).toHaveLength(1);
     expect(view.case.measurement?.northStar).toBe("Repeat booking rate");
 
     const defaults = svc.economicsDefaults(view.case);
     expect(defaults.inputs.scenarioLifts.base).toBe(8);
+    // A retention problem gets the retention template; switching re-labels the same maths.
+    expect(defaults.inputs.model).toBe("retention");
+    expect(svc.economicsDefaults(view.case, "conversion").inputs.model).toBe("conversion");
     view = await svc.saveEconomics(auth, created.id, { ...defaults.inputs, eligibleCustomers: 500_000, averageAnnualValue: 4000, grossMarginPct: 30 });
     expect(view.case.economics!.inputProvenance.eligibleCustomers).toBe("assumption");
     expect(view.case.economics!.scenarios.find((s) => s.name === "base")!.incrementalRevenue).toBe(160_000_000);
 
     await expect(chat.askCase(auth, created.id, "What is happening?")).rejects.toMatchObject({ code: "CHAT_LOCKED" });
     view = await svc.generateReport(auth, created.id);
+
+    // Collaboration: comments on hypotheses, and a revocable read-only share link.
+    {
+      const hypId = view.case.hypotheses[0]!.id;
+      view = await svc.addComment(auth, created.id, { target: "hypothesis", targetId: hypId, text: "Agree, but check corporate travellers too." });
+      const cm = view.case.comments![0]!;
+      expect(cm).toMatchObject({ target: "hypothesis", targetId: hypId });
+      await expect(svc.addComment(auth, created.id, { target: "hypothesis", targetId: "hyp_nope", text: "x" })).rejects.toMatchObject({ status: 404 });
+      const teammate: AuthContext = { ...auth, uid: "u-other", profile: { ...auth.profile!, id: "u-other", role: "analyst" } };
+      await expect(svc.deleteComment(teammate, created.id, cm.id)).rejects.toMatchObject({ status: 403 });
+
+      view = await svc.shareReport(auth, created.id, { audience: "executive" });
+      const token = view.case.shareToken!;
+      expect(token.length).toBeGreaterThanOrEqual(32);
+      expect((await svc.sharedCase(token))?.id).toBe(created.id);
+      expect(await svc.sharedCase("not-a-real-token-but-long-enough")).toBeNull();
+      view = await svc.revokeShare(auth, created.id);
+      expect(view.case.shareToken).toBeUndefined();
+      expect(await svc.sharedCase(token)).toBeNull();
+    }
     const conv = await chat.askCase(auth, created.id, "What is the main driver?");
     expect(conv.messages.at(-1)).toMatchObject({ role: "assistant", citations: ["Hypothesis 1"], outOfScope: false });
     const off = await chat.askCase(auth, created.id, "What's the weather in Paris?");

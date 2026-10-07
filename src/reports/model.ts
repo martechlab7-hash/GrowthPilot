@@ -1,4 +1,6 @@
 import type { BrandProfile, Case, ScenarioResult } from "@/domain/types";
+import { getEconomicsModel } from "@/engine/economicsModels";
+import { breakEvenLift, monteCarlo, sensitivity } from "@/engine/risk";
 import { formatValue, humanizeKey } from "@/engine/context";
 import { assessMaturity } from "@/engine/maturity";
 import { STAGE_LABELS } from "@/engine/interview";
@@ -12,6 +14,8 @@ export type Block =
   | { type: "paragraph"; text: string }
   | { type: "bullets"; items: string[] }
   | { type: "table"; headers: string[]; rows: string[][] }
+  /** A journey drawn as a flowchart: ordered steps, decisions list their branches. */
+  | { type: "flow"; steps: { type: string; label: string; branches?: { label: string; target?: string }[] }[] }
   | { type: "callout"; label: string; text: string };
 
 export interface ReportSection {
@@ -131,7 +135,7 @@ export function buildReportModel(c: Case, brand: BrandProfile): ReportModel {
         {
           type: "table",
           headers: ["Finding", "Stage", "Impact", "Confidence", "Evidence"],
-          rows: d.findings.map((f) => [f.finding, STAGE_LABELS[f.stage], cap(f.impact), pct(f.confidence), f.evidence.map((e) => `[${e.kind}] ${e.statement}`).join("\n")]),
+          rows: d.findings.map((f) => [f.finding, STAGE_LABELS[f.stage], cap(f.impact), pct(f.confidence), f.evidence.map((e) => `${cap(e.kind)}: ${e.statement}`).join("\n")]),
         },
         ...(d.highConfidence.length ? [{ type: "callout" as const, label: "High confidence", text: d.highConfidence.join("; ") }] : []),
         ...(d.mediumConfidence.length ? [{ type: "callout" as const, label: "Medium confidence", text: d.mediumConfidence.join("; ") }] : []),
@@ -157,6 +161,11 @@ export function buildReportModel(c: Case, brand: BrandProfile): ReportModel {
     blocks: [
       ...(r?.dataAssessment ? [{ type: "paragraph" as const, text: r.dataAssessment }] : []),
       ...(factRows(["data"]).length ? [{ type: "table" as const, headers: ["Data", "Value", "Type"], rows: factRows(["data"]) }] : []),
+      ...(c.datasets ?? []).flatMap((d) => (d.analyses ?? []).map((a) => ({
+        type: "callout" as const,
+        label: `${d.name}: ${a.title} (computed from your data)`,
+        text: a.findings.join("\n"),
+      }))),
       ...(c.dataGaps.length
         ? [{ type: "table" as const, headers: ["Critical missing data", "Why needed", "Expected insight", "Priority", "Alternative proxy"], rows: c.dataGaps.map((g) => [g.dataset, g.whyNeeded, g.expectedInsight, cap(g.priority), g.alternativeProxy]) }]
         : []),
@@ -182,9 +191,26 @@ export function buildReportModel(c: Case, brand: BrandProfile): ReportModel {
       ? [
           {
             type: "table",
-            headers: ["Hypothesis", "Status", "Confidence", "Impact", "Missing evidence"],
-            rows: c.hypotheses.map((h) => [h.statement + (h.userFeedback ? `\nUser feedback: ${h.userFeedback}` : ""), statusLabel(h.status), pct(h.confidence), cap(h.businessImpact), h.missingEvidence.join("; ") || "—"]),
+            headers: ["Hypothesis", "Status", "Evidence-checked confidence", "Stress test", "Impact", "Missing evidence"],
+            rows: c.hypotheses.map((h) => [
+              h.statement + (h.userFeedback ? `\nUser feedback: ${h.userFeedback}` : ""),
+              statusLabel(h.status),
+              h.assessment ? `${pct(h.assessment.score)} (model ${pct(h.confidence)})` : pct(h.confidence),
+              h.debate ? `${cap(h.debate.verdict.outcome)}: ${h.debate.verdict.reasoning}` : "Not debated",
+              cap(h.businessImpact),
+              h.missingEvidence.join("; ") || "—",
+            ]),
           },
+          ...c.hypotheses.filter((h) => h.debate && h.status !== "disagreed").map((h) => ({
+            type: "callout" as const,
+            label: `Devil's advocate: ${h.statement.slice(0, 90)}${h.statement.length > 90 ? "…" : ""}`,
+            text: [
+              ...h.debate!.challenges.map((ch) => `Challenge: ${ch.argument}${ch.alternative ? ` Alternative: ${ch.alternative}.` : ""}`),
+              `Defence: ${h.debate!.defense.argument}`,
+              `Verdict: ${cap(h.debate!.verdict.outcome)} (${pct(h.debate!.verdict.confidence)}). ${h.debate!.verdict.reasoning}`,
+              ...(h.debate!.verdict.settleWith.length ? [`Would settle it: ${h.debate!.verdict.settleWith.join("; ")}`] : []),
+            ].join("\n"),
+          })),
         ]
       : [],
   });
@@ -198,7 +224,7 @@ export function buildReportModel(c: Case, brand: BrandProfile): ReportModel {
           {
             type: "table",
             headers: ["Priority", "Recommendation", "Why", "Target customer", "Expected impact", "Effort", "Time to value"],
-            rows: c.recommendations.map((x) => [`${x.priority} (${x.priorityScore})`, x.title, x.why, x.targetCustomer, x.expectedImpact, `${cap(x.complexity)} complexity / ${cap(x.cost)} cost`, `${x.timeToValueWeeks} weeks`]),
+            rows: c.recommendations.map((x) => [`${x.priority} · score ${x.priorityScore}`, x.title, x.why, x.targetCustomer, x.expectedImpact, `${cap(x.complexity)} complexity / ${cap(x.cost)} cost`, `${x.timeToValueWeeks} weeks`]),
           },
           ...c.recommendations.slice(0, 6).map((x) => ({
             type: "callout" as const,
@@ -231,10 +257,20 @@ export function buildReportModel(c: Case, brand: BrandProfile): ReportModel {
     id: "activation",
     title: "11. Activation Strategy",
     headline: "Activation journeys",
-    blocks: c.journeys.flatMap((j) => [
-      { type: "callout" as const, label: j.name, text: `Objective: ${j.objective}\nAudience: ${j.audience}\nChannels: ${j.channels.join(", ")}\nControl group: ${j.controlGroup}` },
-      { type: "bullets" as const, items: j.steps.map((s) => `${cap(s.type)}: ${s.label}${s.branches?.length ? ` (${s.branches.map((b) => b.label).join(" / ")})` : ""}`) },
-    ]),
+    blocks: c.journeys.flatMap((j) => {
+      const byId = new Map(j.steps.map((st) => [st.id, st.label]));
+      return [
+        { type: "callout" as const, label: j.name, text: `Objective: ${j.objective}\nAudience: ${j.audience}\nChannels: ${j.channels.join(", ")}\nControl group: ${j.controlGroup}` },
+        {
+          type: "flow" as const,
+          steps: j.steps.map((st) => ({
+            type: st.type,
+            label: st.label,
+            ...(st.branches?.length ? { branches: st.branches.map((b) => ({ label: b.label, ...(byId.get(b.next) ? { target: byId.get(b.next)! } : {}) })) } : {}),
+          })),
+        },
+      ];
+    }),
   });
 
   add({
@@ -274,24 +310,42 @@ export function buildReportModel(c: Case, brand: BrandProfile): ReportModel {
 
   if (c.economics) {
     const e = c.economics;
+    const em = getEconomicsModel(e.inputs.model);
     add({
       id: "economics",
       title: "15. Economics",
       headline: `Modelled value: ${money(e.scenarios.find((s) => s.name === "base")?.incrementalRevenue ?? 0, e.inputs.currency)} incremental revenue (base case)`,
       blocks: [
         { type: "callout", label: "Modelled estimate", text: e.disclaimer },
-        { type: "table", headers: ["Scenario", "Lift", "Customers", "Revenue", "Gross profit", "Program cost", "ROI", "Payback"], rows: scenarioRows(e.scenarios, e.inputs.currency) },
+        ...(em ? [{ type: "paragraph" as const, text: `Model: ${em.name}. ${em.description}` }] : []),
+        { type: "table", headers: ["Scenario", "Lift", em?.impacted ?? "Customers", "Revenue", "Gross profit", "Program cost", "ROI", "Payback"], rows: scenarioRows(e.scenarios, e.inputs.currency) },
         {
           type: "table",
           headers: ["Input", "Value", "Type"],
           rows: [
-            ["Eligible customers", e.inputs.eligibleCustomers.toLocaleString("en"), cap(e.inputProvenance.eligibleCustomers ?? "assumption")],
-            ["Average annual value", money(e.inputs.averageAnnualValue, e.inputs.currency), cap(e.inputProvenance.averageAnnualValue ?? "assumption")],
+            [em?.volume.label ?? "Eligible customers", e.inputs.eligibleCustomers.toLocaleString("en"), cap(e.inputProvenance.eligibleCustomers ?? "assumption")],
+            [em?.value.label ?? "Average annual value", money(e.inputs.averageAnnualValue, e.inputs.currency), cap(e.inputProvenance.averageAnnualValue ?? "assumption")],
+            [em?.lift.label ?? "Lift", `${e.inputs.scenarioLifts.conservative}% / ${e.inputs.scenarioLifts.base}% / ${e.inputs.scenarioLifts.aggressive}% (conservative / base / aggressive)`, "Assumption"],
             ["Gross margin", `${e.inputs.grossMarginPct}%`, cap(e.inputProvenance.grossMarginPct ?? "assumption")],
             ["Investment", money(e.inputs.investment, e.inputs.currency), "Assumption"],
             ["Monthly run cost", money(e.inputs.monthlyRunCost, e.inputs.currency), "Assumption"],
           ],
         },
+        ...(() => {
+          const be = breakEvenLift(e.inputs);
+          const mc = monteCarlo(e.inputs);
+          const top = sensitivity(e.inputs)[0];
+          return [{
+            type: "callout" as const,
+            label: "Decision view",
+            text: [
+              be !== null ? `Break-even lift: ${be}% (base case ${e.inputs.scenarioLifts.base}%).` : "",
+              `Chance of positive 12-month net profit: ${Math.round(mc.probPositive * 100)}%; payback within 12 months: ${Math.round(mc.probPayback12 * 100)}% (${mc.runs} simulations).`,
+              `Net profit range: P10 ${money(mc.p10, e.inputs.currency)} · P50 ${money(mc.p50, e.inputs.currency)} · P90 ${money(mc.p90, e.inputs.currency)}.`,
+              top ? `Most sensitive input: ${top.driver}. Validate it first.` : "",
+            ].filter(Boolean).join("\n"),
+          }];
+        })(),
         { type: "paragraph", text: "Revenue impact and profit impact are reported separately: profit applies gross margin and deducts programme cost over a 12-month horizon." },
       ],
     });
@@ -357,4 +411,24 @@ function unique<T>(xs: T[]): T[] {
 function zip3(a: string[], b: string[], c: string[]): string[][] {
   const n = Math.max(a.length, b.length, c.length);
   return Array.from({ length: n }, (_, i) => [a[i] ?? "", b[i] ?? "", c[i] ?? ""]);
+}
+
+/** Report cuts for different readers. Same content, different selection. */
+export const AUDIENCES = {
+  full: { label: "Full strategy report", sections: null },
+  executive: { label: "CMO one-pager", sections: ["executive", "findings", "hypotheses", "recommendations", "economics", "roadmap", "next"] },
+  crm: { label: "CRM & activation playbook", sections: ["executive", "customer", "journey", "activation", "martech", "measurement", "experiments", "next"] },
+  data: { label: "Data & measurement spec", sections: ["data", "technology", "martech", "hypotheses", "measurement", "experiments", "assumptions", "legend"] },
+} as const;
+export type Audience = keyof typeof AUDIENCES;
+
+export function forAudience(m: ReportModel, audience: Audience): ReportModel {
+  const cut = AUDIENCES[audience];
+  if (!cut.sections) return m;
+  const keep = new Set<string>(cut.sections);
+  let n = 0;
+  const sections = m.sections
+    .filter((s) => keep.has(s.id))
+    .map((s) => (/^\d+\.\s/.test(s.title) ? { ...s, title: `${++n}. ${s.title.replace(/^\d+\.\s*/, "")}` } : s));
+  return { ...m, subtitle: `${cut.label} · ${m.subtitle}`, sections };
 }

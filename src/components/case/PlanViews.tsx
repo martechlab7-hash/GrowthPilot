@@ -1,6 +1,11 @@
 "use client";
 
-import { ArrowDown, Route } from "lucide-react";
+import { platformFor } from "@/reports/journeyExport";
+import { apiDownload } from "@/lib/client/api";
+import { ExperimentDesigner } from "./ExperimentDesigner";
+import { Flowchart, toFlowSteps } from "@/components/charts/Flowchart";
+import { useState } from "react";
+import { Download, Route } from "lucide-react";
 import type { ActivationJourney } from "@/domain/types";
 import { Badge, Button, Card, CardBody, CardHeader, EmptyState } from "@/components/ui";
 import type { CaseTabProps } from "./Workspace";
@@ -17,30 +22,32 @@ function PlanEmpty({ view, ctl, canManage, go, what }: CaseTabProps & { what: st
   );
 }
 
-const STEP_TONE: Record<string, "blue" | "neutral" | "amber" | "green" | "violet"> = {
-  trigger: "blue", wait: "neutral", condition: "amber", action: "violet", channel: "green", measure: "neutral",
-};
+/** Download a build spec for the client's own engagement platform. */
+function JourneyExport({ caseId, journeyId, platform }: { caseId: string; journeyId: string; platform: string }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const get = async (format: string) => {
+    setBusy(format);
+    setErr(null);
+    try { await apiDownload(`/api/cases/${caseId}/journeys/${journeyId}/export?format=${format}`); } catch (e) { setErr((e as Error).message); } finally { setBusy(null); }
+  };
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <div className="flex flex-wrap justify-end gap-1.5">
+        {(["md", "json", "csv"] as const).map((f) => (
+          <Button key={f} size="sm" variant="outline" loading={busy === f} onClick={() => void get(f)}>
+            <Download className="h-3.5 w-3.5" /> {{ md: "Build brief", json: "JSON spec", csv: "Steps CSV" }[f]}
+          </Button>
+        ))}
+      </div>
+      <span className="text-[11px] text-subtle">Mapped to {platform}</span>
+      {err && <span className="text-xs text-red-600">{err}</span>}
+    </div>
+  );
+}
 
 function JourneyFlow({ j }: { j: ActivationJourney }) {
-  const byId = new Map(j.steps.map((s) => [s.id, s]));
-  return (
-    <ol className="flex flex-col items-start gap-1">
-      {j.steps.map((s, i) => (
-        <li key={s.id} className="w-full max-w-xl">
-          <div className="flex items-center gap-2 rounded-lg border border-line bg-white px-3 py-2 text-sm">
-            <Badge tone={STEP_TONE[s.type]}>{s.type}</Badge>
-            <span>{s.label}</span>
-          </div>
-          {s.branches?.length ? (
-            <div className="ml-6 mt-1 flex flex-wrap gap-2 text-xs text-muted">
-              {s.branches.map((b) => <span key={b.label} className="rounded-full bg-canvas px-2 py-0.5">{b.label} → {byId.get(b.next)?.label ?? b.next}</span>)}
-            </div>
-          ) : null}
-          {i < j.steps.length - 1 && <ArrowDown className="my-1 ml-6 h-3.5 w-3.5 text-slate-300" />}
-        </li>
-      ))}
-    </ol>
-  );
+  return <Flowchart steps={toFlowSteps(j.steps)} />;
 }
 
 export function ActivationView(props: CaseTabProps) {
@@ -69,7 +76,7 @@ export function ActivationView(props: CaseTabProps) {
       </Card>
       {c.journeys.map((j) => (
         <Card key={j.id}>
-          <CardHeader title={j.name} description={j.objective} />
+          <CardHeader title={j.name} description={j.objective} action={<JourneyExport caseId={c.id} journeyId={j.id} platform={platformFor(c).name} />} />
           <CardBody className="grid gap-6 md:grid-cols-[minmax(0,1fr)_260px]">
             <JourneyFlow j={j} />
             <dl className="space-y-3 text-sm">
@@ -92,6 +99,7 @@ export function MeasurementView(props: CaseTabProps) {
   if (!m) return <PlanEmpty {...props} what="measurement framework" />;
   return (
     <div className="space-y-5">
+      <ExperimentDesigner />
       <Card>
         <CardHeader title="North Star metric" />
         <CardBody><p className="text-lg font-semibold">{m.northStar}</p></CardBody>

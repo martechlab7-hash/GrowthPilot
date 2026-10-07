@@ -39,6 +39,13 @@ The product name is configuration (`NEXT_PUBLIC_PRODUCT_NAME`), so the platform 
 | **Pilot the owl** (mascot): guides AI-provider setup, shows live backend activity, reacts to success/failure | ✅ |
 | **Case assistant**: chat that answers only from the completed case, with citations and out-of-scope refusal | ✅ |
 | **Framework guides**: an "i" on every framework opens a full guide — what it is, where it applies, how it works, a plain-words explanation, worked examples, illustrative charts, key metrics and pitfalls | ✅ |
+| **Devil's-advocate debate**: seven mascot challengers attack every hypothesis, Pilot defends with evidence, a judge rules; runs on a second AI provider when available | ✅ |
+| **Evidence verifier + evidence-checked confidence** (rule-based, not AI) | ✅ |
+| **Deterministic analytics on shared data**: trend & anomalies, drivers of change, cohorts, RFM, funnel (PII masked in the browser first) | ✅ |
+| **Decision-grade economics**: break-even lift, sensitivity tornado, Monte Carlo odds; **experiment designer** (sample size, duration) | ✅ |
+| **Closed loop**: outcome tracking, organisation track record & lift calibration, similar past cases as precedent | ✅ |
+| **Execution**: journey build specs mapped to Braze / MoEngage / SFMC / AJO / CleverTap / Iterable / HubSpot / Klaviyo; report cuts for CMO, CRM, data | ✅ |
+| **Collaboration**: comments on hypotheses & recommendations, revocable read-only share links, sourced benchmark library | ✅ |
 | Knowledge base resource links (shared with the AI agents as titles + notes), collapsible sidebar, name-first account menu | ✅ |
 | Brand: logo upload, heading/body fonts, tagline, colour presets, live cover preview — applied to all exports | ✅ |
 | File upload & data analysis, logo/template uploads, RAG, SSO, collaboration invites | Roadmap (see below) |

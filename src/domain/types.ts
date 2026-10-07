@@ -160,6 +160,51 @@ export const ScoredQuestionSchema = QuestionSchema.extend({
   suggested: FieldValueSchema.optional(),
 });
 
+/** Data the user shared (CSV/TSV/text). Only a masked profile and sample are kept, never the raw file. */
+export const DatasetSchema = z.object({
+  id: z.string(),
+  name: z.string().max(120),
+  kind: z.enum(["table", "text"]),
+  note: z.string().max(500).optional(),
+  sizeBytes: z.number(),
+  createdAt: z.string(),
+  createdBy: z.string(),
+  rowCount: z.number().optional(),
+  columns: z
+    .array(
+      z.object({
+        name: z.string(),
+        type: z.enum(["number", "date", "text"]),
+        filled: z.number(),
+        distinct: z.number(),
+        min: z.union([z.number(), z.string()]).optional(),
+        max: z.union([z.number(), z.string()]).optional(),
+        mean: z.number().optional(),
+        sum: z.number().optional(),
+        top: z.array(z.object({ value: z.string(), count: z.number() })).optional(),
+      }),
+    )
+    .optional(),
+  sample: z.string().max(4000).optional(),
+  excerpt: z.string().max(8000).optional(),
+  maskedColumns: z.array(z.string()),
+  removedColumns: z.array(z.string()),
+  maskedItems: z.number().optional(),
+  /** Deterministic analyses computed in code at upload (trend, drivers, cohort, RFM, funnel). */
+  analyses: z
+    .array(
+      z.object({
+        kind: z.enum(["trend", "drivers", "cohort", "rfm", "funnel"]),
+        title: z.string(),
+        findings: z.array(z.string()),
+        chart: z.any().optional(),
+        table: z.object({ headers: z.array(z.string()), rows: z.array(z.array(z.string())) }).optional(),
+      }),
+    )
+    .optional(),
+});
+export type Dataset = z.infer<typeof DatasetSchema>;
+
 /**
  * Per-case interview plan written by the Interview Planner agent: which bank
  * questions matter for THIS problem, and how to phrase them in its context.
@@ -251,6 +296,38 @@ export const HypothesisStatusSchema = z.enum([
 ]);
 export type HypothesisStatus = z.infer<typeof HypothesisStatusSchema>;
 
+/** Devil's-advocate debate on one hypothesis (see knowledge/debatePanel). */
+export const DebateSchema = z.object({
+  challenges: z.array(z.object({
+    panelistId: z.string(),
+    argument: z.string(),
+    alternative: z.string().optional(),
+    wouldChangeMind: z.string().optional(),
+  })),
+  defense: z.object({ argument: z.string(), evidence: z.array(z.string()).default([]) }),
+  verdict: z.object({
+    outcome: z.enum(["survives", "weakened", "refuted"]),
+    confidence: z.number().min(0).max(1),
+    reasoning: z.string(),
+    settleWith: z.array(z.string()).default([]),
+  }),
+  model: z.string().optional(),
+  at: z.string(),
+});
+export type Debate = z.infer<typeof DebateSchema>;
+
+/** Rule-based (not AI) assessment of how well a hypothesis is supported. */
+export const AssessmentSchema = z.object({
+  evidenceStrength: z.number().min(0).max(1),
+  verifiedFacts: z.number(),
+  downgraded: z.number(),
+  unsupported: z.number(),
+  dataBacked: z.boolean(),
+  score: z.number().min(0).max(1),
+  basis: z.array(z.string()),
+});
+export type Assessment = z.infer<typeof AssessmentSchema>;
+
 export const HypothesisSchema = z.object({
   id: z.string(),
   statement: z.string(),
@@ -266,6 +343,8 @@ export const HypothesisSchema = z.object({
   editedByUser: z.boolean().default(false),
   reviewedBy: z.string().optional(),
   reviewedAt: z.string().optional(),
+  assessment: AssessmentSchema.optional(),
+  debate: DebateSchema.optional(),
 });
 export type Hypothesis = z.infer<typeof HypothesisSchema>;
 
@@ -304,6 +383,17 @@ export const RecommendationSchema = z.object({
   priority: PrioritySchema,
   evidence: z.array(EvidenceItemSchema),
   assumptions: z.array(z.string()),
+  /** What actually happened when it ran: feeds the organisation's track record. */
+  outcome: z
+    .object({
+      status: z.enum(["planned", "live", "completed", "dropped"]),
+      actualLiftPct: z.number().min(-100).max(1000).optional(),
+      forecastLiftPct: z.number().optional(),
+      notes: z.string().max(1000).optional(),
+      recordedAt: z.string(),
+      recordedBy: z.string(),
+    })
+    .optional(),
 });
 export type Recommendation = z.infer<typeof RecommendationSchema>;
 
@@ -385,6 +475,8 @@ export type Experiment = z.infer<typeof ExperimentSchema>;
 
 export const EconomicsInputsSchema = z.object({
   currency: z.string().default("USD"),
+  /** Business-case template (retention, acquisition, conversion…); labels only, same maths. */
+  model: z.string().max(40).optional(),
   eligibleCustomers: z.number().min(0),
   averageAnnualValue: z.number().min(0),
   grossMarginPct: z.number().min(0).max(100),
@@ -521,6 +613,23 @@ export const CaseSchema = z.object({
   askedQuestionIds: z.array(z.string()),
   adaptiveQuestions: z.array(QuestionSchema),
   questionPlan: QuestionPlanSchema.optional(),
+  datasets: z.array(DatasetSchema).optional(),
+  debateStatus: z.enum(["pending", "done", "failed"]).optional(),
+  /** Team discussion on hypotheses, recommendations or the case. */
+  comments: z
+    .array(z.object({
+      id: z.string(),
+      target: z.enum(["case", "hypothesis", "recommendation"]),
+      targetId: z.string(),
+      text: z.string().max(2000),
+      by: z.string(),
+      byName: z.string(),
+      at: z.string(),
+    }))
+    .optional(),
+  /** Secret token for the read-only report link (top-level so it can be looked up). */
+  shareToken: z.string().optional(),
+  share: z.object({ audience: z.string(), createdAt: z.string(), createdBy: z.string() }).optional(),
   selectedFrameworks: z.array(z.string()),
   diagnosis: DiagnosisSchema.optional(),
   hypotheses: z.array(HypothesisSchema),

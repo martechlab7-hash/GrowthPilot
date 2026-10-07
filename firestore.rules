@@ -41,6 +41,11 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /knowledge_benchmarks/{id} {
+      allow read: if inOrg(resource.data.organizationId);
+      allow write: if false;
+    }
+
     match /knowledge_resources/{id} {
       allow read: if inOrg(resource.data.organizationId);
       allow write: if false;

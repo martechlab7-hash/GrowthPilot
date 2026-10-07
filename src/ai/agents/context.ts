@@ -39,6 +39,17 @@ export interface AgentContext {
   approved_hypotheses: { id: string; statement: string; user_feedback?: string }[];
   rejected_hypotheses: { statement: string; reason?: string }[];
   assumptions: string[];
+  /** Data the client shared, as masked statistical profiles (treat as facts from their systems). */
+  shared_data: {
+    name: string;
+    note?: string;
+    rows?: number;
+    columns?: string[];
+    sample_csv?: string;
+    text?: string;
+    /** Results computed in code from the full file: verified facts (cite as "analysis:<name>"). */
+    computed_analyses?: string[];
+  }[];
 }
 
 const STAGE_BUCKET: Record<Stage, keyof AgentContext> = {
@@ -90,6 +101,25 @@ export function buildAgentContext(c: Case): AgentContext {
       .filter((h) => h.status === "disagreed")
       .map((h) => ({ statement: h.statement, ...(h.userFeedback ? { reason: h.userFeedback } : {}) })),
     assumptions: c.assumptions.map((a) => a.statement),
+    shared_data: (c.datasets ?? []).map((d) => ({
+      name: d.name,
+      ...(d.note ? { note: d.note } : {}),
+      ...(d.rowCount !== undefined ? { rows: d.rowCount } : {}),
+      ...(d.columns
+        ? {
+            columns: d.columns.map((col) =>
+              col.type === "number"
+                ? `${col.name} (number: min ${col.min}, max ${col.max}, mean ${col.mean}, total ${col.sum})`
+                : col.type === "date"
+                  ? `${col.name} (date: ${col.min} to ${col.max})`
+                  : `${col.name} (text, ${col.distinct} distinct${col.top?.length ? `; top: ${col.top.map((t) => `${t.value} ×${t.count}`).join(", ")}` : ""})`,
+            ),
+          }
+        : {}),
+      ...(d.sample ? { sample_csv: d.sample } : {}),
+      ...(d.excerpt ? { text: d.excerpt.slice(0, 4000) } : {}),
+      ...(d.analyses?.length ? { computed_analyses: d.analyses.flatMap((a) => a.findings.map((f) => `${a.title}: ${f}`)) } : {}),
+    })),
   };
   for (const f of Object.values(c.context.fields)) {
     const bucket = ctx[STAGE_BUCKET[f.stage]] as ContextEntry[];

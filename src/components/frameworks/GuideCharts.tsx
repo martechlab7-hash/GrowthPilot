@@ -14,6 +14,15 @@ export const fmt = (n: number, unit?: string): string => {
   return `${s} ${u}`;
 };
 
+/** Short axis labels: 1.2K, 500K, 3.4M. */
+export const compact = (n: number): string => {
+  const a = Math.abs(n);
+  if (a >= 1e9) return `${Math.round(n / 1e8) / 10}B`;
+  if (a >= 1e6) return `${Math.round(n / 1e5) / 10}M`;
+  if (a >= 1e4) return `${Math.round(n / 1e3)}K`;
+  return String(Math.round(n * 10) / 10);
+};
+
 /** A "nice" axis step (1, 2, 2.5, 5 × 10^n). */
 function niceStep(range: number, ticks = 4) {
   const raw = range / ticks || 1;
@@ -22,7 +31,7 @@ function niceStep(range: number, ticks = 4) {
   return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * mag;
 }
 
-export function GuideChart({ visual }: { visual: GuideVisual }) {
+export function GuideChart({ visual, computed }: { visual: GuideVisual; computed?: boolean }) {
   return (
     <figure className="rounded-2xl border border-line bg-white p-4">
       <figcaption className="mb-3">
@@ -30,7 +39,7 @@ export function GuideChart({ visual }: { visual: GuideVisual }) {
         <div className="text-xs text-muted">{visual.caption}</div>
       </figcaption>
       <Chart v={visual} />
-      {hasNumbers(visual) && <div className="mt-2 text-[11px] text-subtle">Illustrative numbers, not benchmarks.</div>}
+      {!computed && hasNumbers(visual) && <div className="mt-2 text-[11px] text-subtle">Illustrative numbers, not benchmarks.</div>}
     </figure>
   );
 }
@@ -77,7 +86,7 @@ function Funnel({ stages }: { stages: { label: string; value: number }[] }) {
 }
 
 function Line({ xLabels, yLabel, series }: { xLabels: string[]; yLabel: string; series: { name: string; points: number[] }[] }) {
-  const W = 560, H = 230, L = 44, R = 12, T = 12, B = 34;
+  const W = 560, H = 230, L = 48, R = 22, T = 12, B = 34;
   const all = series.flatMap((s) => s.points);
   const rawMin = Math.min(0, ...all);
   const step = niceStep(Math.max(...all, 1) - rawMin);
@@ -92,10 +101,10 @@ function Line({ xLabels, yLabel, series }: { xLabels: string[]; yLabel: string; 
         {ticks.map((t) => (
           <g key={t}>
             <line x1={L} x2={W - R} y1={y(t)} y2={y(t)} stroke="#e5e7eb" />
-            <text x={L - 6} y={y(t) + 3} fontSize="10" textAnchor="end" fill="#94a3b8">{fmt(t)}</text>
+            <text x={L - 6} y={y(t) + 3} fontSize="10" textAnchor="end" fill="#94a3b8">{compact(t)}</text>
           </g>
         ))}
-        {xLabels.map((l, i) => <text key={l + i} x={x(i)} y={H - 14} fontSize="10" textAnchor="middle" fill="#64748b">{l}</text>)}
+        {xLabels.map((l, i) => (xLabels.length <= 8 || i % Math.ceil(xLabels.length / 8) === 0 || i === xLabels.length - 1) && <text key={l + i} x={x(i)} y={H - 14} fontSize="10" textAnchor={i === 0 ? "start" : i === xLabels.length - 1 ? "end" : "middle"} fill="#64748b">{l}</text>)}
         <text x={L} y={H - 1} fontSize="10" fill="#94a3b8">{yLabel}</text>
         {series.map((s, si) => (
           <g key={s.name}>

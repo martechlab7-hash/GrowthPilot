@@ -92,7 +92,11 @@ export function DiagnosisView({ view, ctl, canManage, go }: CaseTabProps) {
       </Card>
 
       <Card>
-        <CardHeader title="Critical missing data" description="Datasets that could materially change the diagnosis." />
+        <CardHeader
+          title="Critical missing data"
+          description="Datasets that could materially change the diagnosis. Share an aggregated export (no personal data) and re-run the diagnosis."
+          action={<Button size="sm" variant="outline" onClick={() => go("data")}>Share data</Button>}
+        />
         <CardBody className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="text-left text-xs uppercase tracking-wide text-muted"><tr><th className="pb-2 pr-3">Dataset</th><th className="pb-2 pr-3">Why needed</th><th className="pb-2 pr-3">Expected insight</th><th className="pb-2 pr-3">Priority</th><th className="pb-2">Alternative proxy</th></tr></thead>
