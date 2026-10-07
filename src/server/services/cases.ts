@@ -20,6 +20,7 @@ import {
   type Dataset,
 } from "@/domain/types";
 import { classifyProblem } from "@/engine/classify";
+import { CHANNEL_KEY, CHANNEL_OPTIONS, detectChannel, detectGoal, GOAL_KEY, GOAL_OPTIONS } from "@/engine/caseProfile";
 import { emptyContext, getNumber, isKnown, markUnknown, setField } from "@/engine/context";
 import { computeEconomics } from "@/engine/economics";
 import { selectFrameworks } from "@/engine/frameworkSelection";
@@ -70,6 +71,10 @@ export const CreateCaseSchema = z.object({
   objective: z.array(z.string().max(80)).max(7).optional(),
   revenueModel: z.string().max(200).optional(),
   existingTools: z.string().max(500).optional(),
+  /** Recover a decline, grow from the baseline, or both. Inferred from the statement when omitted. */
+  goal: z.enum(["decline", "growth", "both"]).optional(),
+  /** Where sales happen. Inferred from the statement when omitted. */
+  salesChannel: z.enum(["offline", "online", "omni"]).optional(),
   currency: z.string().length(3).default("USD"),
 });
 
@@ -294,6 +299,13 @@ export async function createCase(auth: AuthContext, input: z.infer<typeof Create
   for (const [key, value] of optional) {
     if (value !== undefined && value !== "") ctx = setField(ctx, { key, value, by, at: t });
   }
+  // The goal and the sales channel steer the whole interview: a stated choice is a fact,
+  // a reading of the statement is an inference that the interview asks to confirm.
+  const text = `${input.name}. ${input.problemStatement}`;
+  const goal = input.goal ?? detectGoal(text);
+  if (goal) ctx = setField(ctx, { key: GOAL_KEY, value: GOAL_OPTIONS[goal], by: input.goal ? by : "system", at: t, ...(input.goal ? {} : { source: "ai_inference" as const, kind: "inference" as const, confidence: "medium" as const }) });
+  const channel = input.salesChannel ?? detectChannel(text);
+  if (channel) ctx = setField(ctx, { key: CHANNEL_KEY, value: CHANNEL_OPTIONS[channel], by: input.salesChannel ? by : "system", at: t, ...(input.salesChannel ? {} : { source: "ai_inference" as const, kind: "inference" as const, confidence: "medium" as const }) });
 
   const problemTypes = classifyProblem(`${input.name} ${input.problemStatement}`);
   const frameworks = selectFrameworks({ problemStatement: input.problemStatement, problemTypes, industryId });

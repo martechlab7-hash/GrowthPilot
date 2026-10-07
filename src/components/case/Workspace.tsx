@@ -1,5 +1,6 @@
 "use client";
 
+import { channelOf, goalOf } from "@/engine/caseProfile";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -44,6 +45,9 @@ export const TABS = [
   ["history", "History"],
 ] as const;
 export type Tab = (typeof TABS)[number][0];
+
+const GOAL_BADGE = { decline: "Fix a drop", growth: "Growth target", both: "Recover, then grow" } as const;
+const CHANNEL_BADGE = { offline: "Offline sales", online: "Online sales", omni: "Online + offline" } as const;
 
 export interface CaseTabProps {
   view: CaseView;
@@ -133,6 +137,8 @@ export function Workspace({ id }: { id: string }) {
               <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
                 <Badge tone={STATUS_TONE[c.status]}>{STATUS_LABEL[c.status]}</Badge>
                 <span>{industryName(c.industryId)}</span>
+                {goalOf(c.context) && <Badge tone="violet">{GOAL_BADGE[goalOf(c.context)!]}</Badge>}
+                {channelOf(c.context) && <Badge>{CHANNEL_BADGE[channelOf(c.context)!]}</Badge>}
                 <span aria-hidden>·</span>
                 <span aria-live="polite" className={cn(ctl.busy && "font-medium text-brand-600")}>{ctl.busy ? `${ctl.busy}…` : ctl.savedAt ? `Saved ${timeAgo(ctl.savedAt)}` : `Updated ${timeAgo(c.updatedAt)}`}</span>
               </div>

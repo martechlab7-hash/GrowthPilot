@@ -1,6 +1,7 @@
 import type { Case, KnowledgeKind, Stage } from "@/domain/types";
 import { formatValue } from "@/engine/context";
 import { analyzeCadence } from "@/engine/cadence";
+import { approachFor, channelOf, goalOf } from "@/engine/caseProfile";
 import { getIndustry } from "@/knowledge/industries";
 import { getFramework } from "@/knowledge/frameworks";
 
@@ -18,6 +19,12 @@ export interface AgentContext {
   case_name: string;
   problem_statement: string;
   problem_types: string[];
+  /** "decline", "growth" or "both" (recover then grow); null when not yet known. */
+  case_goal: string | null;
+  /** "offline", "online" or "omni"; null when not yet known. */
+  sales_channel: string | null;
+  /** How to approach this case given its goal and sales channel. Follow it. */
+  approach: string[];
   industry: {
     name: string;
     lifecycle: string[];
@@ -79,6 +86,9 @@ export function buildAgentContext(c: Case): AgentContext {
     case_name: c.name,
     problem_statement: c.problemStatement,
     problem_types: c.problemTypes,
+    case_goal: goalOf(c.context) ?? null,
+    sales_channel: channelOf(c.context) ?? null,
+    approach: approachFor(goalOf(c.context), channelOf(c.context)),
     industry: industry
       ? {
           name: industry.name,

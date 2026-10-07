@@ -3,6 +3,7 @@ import { STAGES } from "@/domain/types";
 import { QUESTION_BANK, type BankQuestion } from "@/knowledge/questionBank";
 import { isKnown, markUnknown } from "./context";
 import { fillPlaceholders, metricFromStatement, vocabularyFor } from "@/knowledge/vocabulary";
+import { channelOf, goalOf } from "./caseProfile";
 
 /**
  * Information Value Engine (spec §8–9).
@@ -43,7 +44,35 @@ export function isRelevant(q: Question | BankQuestion, c: InterviewCase): boolea
   if (when.requiresKnown && !when.requiresKnown.every((k) => isKnown(c.context, k))) {
     return false;
   }
+  if (when.goals) {
+    const goal = goalOf(c.context) ?? "decline";
+    if (goal !== "both" && !when.goals.includes(goal)) return false;
+  }
+  if (when.channels) {
+    const channel = channelOf(c.context) ?? "online";
+    if (channel !== "omni" && !when.channels.includes(channel)) return false;
+  }
+  if (when.requiresMessaging && !usesMessaging(c.context)) return false;
   return true;
+}
+
+function usesMessaging(ctx: InterviewCase["context"]): boolean {
+  const v = ctx.fields["marketing.channels"]?.value;
+  return Array.isArray(v) && v.some((ch) => MESSAGING.test(ch));
+}
+
+type Variant = NonNullable<BankQuestion["variants"]>[number];
+
+/** The first variant whose conditions all hold for this case. */
+function variantFor(q: Question | BankQuestion, c: InterviewCase): Variant | undefined {
+  const goal = goalOf(c.context);
+  const channel = channelOf(c.context);
+  return (q as BankQuestion).variants?.find(
+    (v) =>
+      (!v.problemTypes || v.problemTypes.some((t) => c.problemTypes.includes(t))) &&
+      (!v.goals || (!!goal && v.goals.includes(goal))) &&
+      (!v.channels || (!!channel && v.channels.includes(channel))),
+  );
 }
 
 /** 1 = unknown, 0.5 = only an assumption/inference, 0 = known fact or declared unknown. */
@@ -60,6 +89,8 @@ export function scoreQuestion(q: Question | BankQuestion, c: InterviewCase): Sco
   const boostFor = (q as BankQuestion).boostFor;
   if (boostFor && boostFor.some((t: ProblemType) => c.problemTypes.includes(t))) priority *= PROBLEM_BOOST;
   if (q.critical) priority *= CRITICAL_BOOST;
+  // Unconfirmed "ask first" questions (goal, sales channel) outrank everything.
+  if ((q as BankQuestion).askFirst && u > 0) priority = Math.max(priority, 1000);
   return { ...contextualize(stripRules(q), c), priority: Math.round(priority * 10) / 10, uncertainty: u };
 }
 
@@ -72,9 +103,13 @@ function contextualize(q: Question, c: InterviewCase): Question & { suggested?: 
   const plan = c.questionPlan?.items[q.id];
   const metric = c.questionPlan?.metric || (c.problemStatement ? metricFromStatement(c.problemStatement) : undefined);
   const v = vocabularyFor(c.industryId);
-  const variant = (q as BankQuestion).variants?.find((x) => x.problemTypes.some((t) => c.problemTypes.includes(t)));
-  let prompt = plan?.prompt || fillPlaceholders(variant?.prompt ?? q.prompt, v, metric);
-  const why = plan?.why || fillPlaceholders(variant?.why ?? q.why, v, metric);
+  const variant = variantFor(q, c);
+  if (variant?.options) q = { ...q, options: variant.options };
+  // Wording written for the case's goal or sales channel beats generic tailoring,
+  // which may predate a corrected goal or channel.
+  const profiled = !!variant && (!!variant.goals || !!variant.channels) && !!variant.prompt;
+  let prompt = (!profiled && plan?.prompt) || fillPlaceholders(variant?.prompt ?? q.prompt, v, metric);
+  const why = (!profiled && plan?.why) || fillPlaceholders(variant?.why ?? q.why, v, metric);
   const placeholder = variant?.placeholder ?? q.placeholder;
   const f = c.context.fields[q.key];
   const inferred = f && f.kind !== "fact" && !c.context.unknownKeys.includes(q.key) ? f.value : undefined;
@@ -95,12 +130,13 @@ function contextualize(q: Question, c: InterviewCase): Question & { suggested?: 
   return { ...stripVariants(q), prompt, why, ...(placeholder ? { placeholder } : {}), ...(suggested !== undefined ? { suggested } : {}) };
 }
 
-const MESSAGING = /email|sms|whatsapp|push|in-app|rcs/i;
+const MESSAGING = /email|sms|whatsapp|push|in-app|rcs|phone call/i;
 
 function stripRules(q: Question | BankQuestion): Question {
-  const { when: _w, boostFor: _b, ...rest } = q as BankQuestion;
+  const { when: _w, boostFor: _b, askFirst: _f, ...rest } = q as BankQuestion;
   void _w;
   void _b;
+  void _f;
   return rest;
 }
 
