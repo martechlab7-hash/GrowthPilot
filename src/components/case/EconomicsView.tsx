@@ -8,6 +8,7 @@ import { ScenarioChart } from "@/components/charts";
 import { apiFetch } from "@/lib/client/api";
 import { money } from "@/reports/model";
 import { computeScenario } from "@/engine/economics";
+import { breakEvenLift, monteCarlo, sensitivity } from "@/engine/risk";
 import { DEFAULT_ECONOMICS_MODEL, ECONOMICS_MODELS, getEconomicsModel, modelForProblem } from "@/engine/economicsModels";
 import { cn } from "@/lib/cn";
 import type { CaseTabProps } from "./Workspace";
@@ -183,12 +184,64 @@ export function EconomicsView({ view, ctl, canContribute }: CaseTabProps) {
                 </tbody>
               </table>
             </div>
+            <RiskPanel inputs={e.inputs} />
             <p className="text-xs text-muted">
               {shownModel.impacted} = {shownModel.volume.label.toLowerCase()} × lift. Revenue = that × {shownModel.value.label.toLowerCase()}. Gross profit applies margin; net profit deducts the investment and 12 months of run cost. Revenue impact is not profit impact.
             </p>
           </CardBody>
         </Card>
       )}
+    </div>
+  );
+}
+
+/** Break-even, odds of paying back and what moves the result most. */
+function RiskPanel({ inputs }: { inputs: EconomicsInputs }) {
+  const be = breakEvenLift(inputs);
+  const mc = monteCarlo(inputs);
+  const sens = sensitivity(inputs);
+  const base = computeScenario(inputs, "base", inputs.scenarioLifts.base).netProfit;
+  const span = Math.max(1, ...sens.map((x) => Math.max(Math.abs(x.low - base), Math.abs(x.high - base))));
+  const cur = inputs.currency;
+  return (
+    <div className="grid gap-4 rounded-xl border border-line bg-canvas/40 p-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
+      <div className="space-y-3 text-sm">
+        <div className="text-xs font-semibold uppercase tracking-[0.12em] text-subtle">Decision view</div>
+        <div className="rounded-lg bg-white p-3 ring-1 ring-line">
+          <div className="text-muted">Break-even lift</div>
+          <div className="text-lg font-semibold">{be === null ? "n/a" : `${be}%`}</div>
+          <div className="text-xs text-muted">{be === null ? "Add value and margin to compute it." : be <= inputs.scenarioLifts.base ? `Below your base case (${inputs.scenarioLifts.base}%): pays back if the base case holds.` : `Above your base case (${inputs.scenarioLifts.base}%): needs better than expected results.`}</div>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <div className="rounded-lg bg-white p-3 ring-1 ring-line"><div className="text-xs text-muted">Chance of positive 12-mo profit</div><div className={cn("text-lg font-semibold", mc.probPositive >= 0.7 ? "text-emerald-600" : mc.probPositive >= 0.4 ? "text-amber-600" : "text-red-600")}>{Math.round(mc.probPositive * 100)}%</div></div>
+          <div className="rounded-lg bg-white p-3 ring-1 ring-line"><div className="text-xs text-muted">Chance of payback within 12 months</div><div className="text-lg font-semibold">{Math.round(mc.probPayback12 * 100)}%</div></div>
+        </div>
+        <div className="rounded-lg bg-white p-3 text-xs ring-1 ring-line">
+          <div className="text-muted">Net profit range ({mc.runs.toLocaleString("en")} simulations)</div>
+          <div className="mt-1 flex justify-between tabular-nums"><span>P10 {money(mc.p10, cur)}</span><span className="font-semibold">P50 {money(mc.p50, cur)}</span><span>P90 {money(mc.p90, cur)}</span></div>
+          <p className="mt-1 text-subtle">Lift drawn between your conservative and aggressive cases; volume and value ±10%, margin ±5%.</p>
+        </div>
+      </div>
+      <div className="text-sm">
+        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-subtle">What moves net profit most</div>
+        <div className="space-y-2">
+          {sens.map((x) => {
+            const left = ((Math.min(x.low, base) - base) / span) * 50;
+            const right = ((Math.max(x.high, base) - base) / span) * 50;
+            return (
+              <div key={x.driver} className="grid grid-cols-[minmax(0,10rem)_minmax(0,1fr)] items-center gap-2 text-xs">
+                <span className="truncate text-muted" title={x.driver}>{x.driver}</span>
+                <div className="relative h-5 rounded bg-white ring-1 ring-line">
+                  <span className="absolute inset-y-0 left-1/2 w-px bg-slate-300" />
+                  <span className="absolute inset-y-0.5 rounded-l bg-red-400" style={{ left: `${50 + left}%`, width: `${-left}%` }} />
+                  <span className="absolute inset-y-0.5 rounded-r bg-emerald-500" style={{ left: "50%", width: `${right}%` }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <p className="mt-2 text-xs text-subtle">Each bar shows base-case net profit ({money(base, cur)}) when that one input moves; the longest bar is the assumption to validate first.</p>
+      </div>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import type { BrandProfile, Case, ScenarioResult } from "@/domain/types";
 import { getEconomicsModel } from "@/engine/economicsModels";
+import { breakEvenLift, monteCarlo, sensitivity } from "@/engine/risk";
 import { formatValue, humanizeKey } from "@/engine/context";
 import { assessMaturity } from "@/engine/maturity";
 import { STAGE_LABELS } from "@/engine/interview";
@@ -330,6 +331,21 @@ export function buildReportModel(c: Case, brand: BrandProfile): ReportModel {
             ["Monthly run cost", money(e.inputs.monthlyRunCost, e.inputs.currency), "Assumption"],
           ],
         },
+        ...(() => {
+          const be = breakEvenLift(e.inputs);
+          const mc = monteCarlo(e.inputs);
+          const top = sensitivity(e.inputs)[0];
+          return [{
+            type: "callout" as const,
+            label: "Decision view",
+            text: [
+              be !== null ? `Break-even lift: ${be}% (base case ${e.inputs.scenarioLifts.base}%).` : "",
+              `Chance of positive 12-month net profit: ${Math.round(mc.probPositive * 100)}%; payback within 12 months: ${Math.round(mc.probPayback12 * 100)}% (${mc.runs} simulations).`,
+              `Net profit range: P10 ${money(mc.p10, e.inputs.currency)} · P50 ${money(mc.p50, e.inputs.currency)} · P90 ${money(mc.p90, e.inputs.currency)}.`,
+              top ? `Most sensitive input: ${top.driver}. Validate it first.` : "",
+            ].filter(Boolean).join("\n"),
+          }];
+        })(),
         { type: "paragraph", text: "Revenue impact and profit impact are reported separately: profit applies gross margin and deducts programme cost over a 12-month horizon." },
       ],
     });

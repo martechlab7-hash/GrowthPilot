@@ -1,5 +1,6 @@
 "use client";
 
+import { ExperimentDesigner } from "./ExperimentDesigner";
 import { Flowchart, toFlowSteps } from "@/components/charts/Flowchart";
 import { Route } from "lucide-react";
 import type { ActivationJourney } from "@/domain/types";
@@ -71,6 +72,7 @@ export function MeasurementView(props: CaseTabProps) {
   if (!m) return <PlanEmpty {...props} what="measurement framework" />;
   return (
     <div className="space-y-5">
+      <ExperimentDesigner />
       <Card>
         <CardHeader title="North Star metric" />
         <CardBody><p className="text-lg font-semibold">{m.northStar}</p></CardBody>
