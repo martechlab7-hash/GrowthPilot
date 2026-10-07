@@ -284,6 +284,38 @@ export const HypothesisStatusSchema = z.enum([
 ]);
 export type HypothesisStatus = z.infer<typeof HypothesisStatusSchema>;
 
+/** Devil's-advocate debate on one hypothesis (see knowledge/debatePanel). */
+export const DebateSchema = z.object({
+  challenges: z.array(z.object({
+    panelistId: z.string(),
+    argument: z.string(),
+    alternative: z.string().optional(),
+    wouldChangeMind: z.string().optional(),
+  })),
+  defense: z.object({ argument: z.string(), evidence: z.array(z.string()).default([]) }),
+  verdict: z.object({
+    outcome: z.enum(["survives", "weakened", "refuted"]),
+    confidence: z.number().min(0).max(1),
+    reasoning: z.string(),
+    settleWith: z.array(z.string()).default([]),
+  }),
+  model: z.string().optional(),
+  at: z.string(),
+});
+export type Debate = z.infer<typeof DebateSchema>;
+
+/** Rule-based (not AI) assessment of how well a hypothesis is supported. */
+export const AssessmentSchema = z.object({
+  evidenceStrength: z.number().min(0).max(1),
+  verifiedFacts: z.number(),
+  downgraded: z.number(),
+  unsupported: z.number(),
+  dataBacked: z.boolean(),
+  score: z.number().min(0).max(1),
+  basis: z.array(z.string()),
+});
+export type Assessment = z.infer<typeof AssessmentSchema>;
+
 export const HypothesisSchema = z.object({
   id: z.string(),
   statement: z.string(),
@@ -299,6 +331,8 @@ export const HypothesisSchema = z.object({
   editedByUser: z.boolean().default(false),
   reviewedBy: z.string().optional(),
   reviewedAt: z.string().optional(),
+  assessment: AssessmentSchema.optional(),
+  debate: DebateSchema.optional(),
 });
 export type Hypothesis = z.infer<typeof HypothesisSchema>;
 
@@ -557,6 +591,7 @@ export const CaseSchema = z.object({
   adaptiveQuestions: z.array(QuestionSchema),
   questionPlan: QuestionPlanSchema.optional(),
   datasets: z.array(DatasetSchema).optional(),
+  debateStatus: z.enum(["pending", "done", "failed"]).optional(),
   selectedFrameworks: z.array(z.string()),
   diagnosis: DiagnosisSchema.optional(),
   hypotheses: z.array(HypothesisSchema),

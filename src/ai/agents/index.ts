@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type {
   ActivationJourney,
+  Debate,
   Case,
   Diagnosis,
   Experiment,
@@ -40,6 +41,7 @@ export interface Progress {
 const AGENT_LABELS: Record<string, string> = {
   extraction: "Fact extraction",
   planner: "Interview Planner",
+  debate: "Debate panel",
   interview: "Interview Agent",
   diagnostic: "Diagnostic Agent",
   hypothesis: "Hypothesis Agent",
@@ -199,6 +201,26 @@ export async function planInterview(deps: AgentDeps, c: Case): Promise<Interview
   const skipped = Object.entries(items).filter(([, v]) => v.skip);
   if (skipped.length > qs.length / 2) for (const [, v] of skipped) delete v.skip;
   return { metric: out.metric.trim().toLowerCase().slice(0, 80), focus: out.focus.trim().slice(0, 400), items };
+}
+
+/** Devil's-advocate debate: panel challenges, Pilot defends, judge rules. */
+export async function debateHypotheses(deps: AgentDeps, c: Case, hypotheses: Hypothesis[]): Promise<Record<string, Omit<Debate, "at" | "model">>> {
+  const { CHALLENGERS } = await import("@/knowledge/debatePanel");
+  const out = await runAgent(deps, "debate", "reasoning", P.DEBATE_SYSTEM, {
+    "CASE CONTEXT": serializeContext(buildAgentContext(c)),
+    PANEL: JSON.stringify(CHALLENGERS.map((p) => ({ id: p.id, name: p.name, role: p.role, lens: p.lens }))),
+    HYPOTHESES: JSON.stringify(hypotheses.map((h) => ({ id: h.id, statement: h.statement, driver: h.driver, evidence: h.evidence, missingEvidence: h.missingEvidence, confidence: h.confidence }))),
+  }, S.DebateOutput, { case: c, maxTokens: 10_000 });
+  const ids = new Set(CHALLENGERS.map((p) => p.id));
+  const known = new Set(hypotheses.map((h) => h.id));
+  const result: Record<string, Omit<Debate, "at" | "model">> = {};
+  for (const d of out.debates) {
+    if (!known.has(d.hypothesisId)) continue;
+    const challenges = d.challenges.filter((x) => ids.has(x.panelistId));
+    if (!challenges.length) continue;
+    result[d.hypothesisId] = { challenges, defense: d.defense, verdict: d.verdict };
+  }
+  return result;
 }
 
 /** Interview Agent: adaptive questions beyond the bank. */

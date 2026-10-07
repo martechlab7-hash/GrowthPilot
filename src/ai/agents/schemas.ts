@@ -66,6 +66,29 @@ export const InterviewPlanOutput = z.object({
   ),
 });
 
+export const DebateOutput = z.object({
+  debates: z.array(
+    z.object({
+      hypothesisId: z.string(),
+      challenges: z.array(
+        z.object({
+          panelistId: z.string(),
+          argument: z.string(),
+          alternative: z.string().optional(),
+          wouldChangeMind: z.string().optional(),
+        }),
+      ).min(1).max(3),
+      defense: z.object({ argument: z.string(), evidence: z.array(z.string()).max(5).default([]) }),
+      verdict: z.object({
+        outcome: z.enum(["survives", "weakened", "refuted"]),
+        confidence: z.number().min(0).max(1),
+        reasoning: z.string(),
+        settleWith: z.array(z.string()).max(3).default([]),
+      }),
+    }),
+  ),
+});
+
 export const DiagnosticOutput = z.object({
   summary: z.string(),
   findings: z.array(

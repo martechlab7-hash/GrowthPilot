@@ -17,6 +17,18 @@ function fixture(req: ChatRequest): unknown {
   prompts.push(prompt);
   const ev = [{ statement: "Repeat bookings fell", kind: "fact", sourceKeys: ["performance.metric_current"] }];
   if (sys.includes("Extract structured facts")) return { facts: [{ key: "business.geography", value: "India", confidence: "high" }, { key: "business.industry", value: "Not an option", confidence: "high" }], problemTypes: ["retention"] };
+  if (sys.includes("devil's-advocate debate")) {
+    const ids = [...new Set(prompt.match(/hyp_[a-f0-9]{8}/g) ?? [])];
+    return { debates: ids.map((id, i) => ({
+      hypothesisId: id,
+      challenges: [
+        { panelistId: "statistician", argument: "Repeat bookings dip every winter; this may be seasonality.", alternative: "Seasonal dip", wouldChangeMind: "Same months last year were flat" },
+        { panelistId: "not_a_panelist", argument: "ignored" },
+      ],
+      defense: { argument: "Last winter repeat rate held at 38%, so seasonality does not explain the drop.", evidence: ["Repeat rate fell"] },
+      verdict: { outcome: i === 0 ? "survives" : "weakened", confidence: 0.7, reasoning: "Seasonality is ruled out by the prior-year comparison.", settleWith: ["Compare cohorts year on year"] },
+    })) };
+  }
   if (sys.includes("Interview Planner")) return { metric: "repeat bookings", focus: "We'll find which passengers stopped rebooking, and why.", questions: [
     { id: "perf-onset", relevant: true, prompt: "When did repeat bookings start to slide, and was the drop sudden or gradual?" },
     { id: "biz-geo", relevant: false },
@@ -152,6 +164,13 @@ describe("consulting lifecycle", () => {
     expect(JSON.stringify((await svc.getCase(auth, created.id)).case.diagnosis)).not.toContain("thinking_summary");
     let view = await svc.generateHypotheses(auth, created.id);
     expect(view.case.status).toBe("validation");
+    // Every hypothesis is evidence-checked and stress-tested by the debate panel.
+    expect(view.case.debateStatus).toBe("done");
+    const debated = view.case.hypotheses[0]!;
+    expect(debated.debate?.challenges.map((ch) => ch.panelistId)).toEqual(["statistician"]);
+    expect(debated.debate?.verdict.outcome).toBe("survives");
+    expect(debated.assessment?.basis).toContain("Debate verdict: survives");
+    expect(view.case.hypotheses[1]!.assessment!.score).toBeLessThan(debated.assessment!.score);
     const [h1, h2] = view.case.hypotheses;
 
     // The approval gate blocks the strategy until every hypothesis is reviewed.

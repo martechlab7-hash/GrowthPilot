@@ -20,6 +20,23 @@ export const MASCOTS = [
   { id: "wizard", name: "Wizard" },
   { id: "knight", name: "Knight" },
   { id: "chef", name: "Chef" },
+  // People and things (also used as the hypothesis debate panel)
+  { id: "ballerina", name: "Ballerina" },
+  { id: "beard", name: "Beard" },
+  { id: "builder", name: "Builder" },
+  { id: "cap", name: "Cap" },
+  { id: "afro", name: "Curls" },
+  { id: "bald", name: "Bald" },
+  { id: "grandpa", name: "Grandpa" },
+  { id: "granny", name: "Granny" },
+  { id: "hijabi", name: "Hijabi" },
+  { id: "glasses", name: "Glasses" },
+  { id: "nurse", name: "Nurse" },
+  { id: "pirate", name: "Pirate" },
+  { id: "sikh", name: "Sikh" },
+  { id: "skater", name: "Skater" },
+  { id: "clockwork", name: "Clockwork" },
+  { id: "crt", name: "Monitor" },
 ] as const;
 
 export type MascotId = (typeof MASCOTS)[number]["id"] | "none";

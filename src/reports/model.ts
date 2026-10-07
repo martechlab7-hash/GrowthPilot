@@ -185,9 +185,26 @@ export function buildReportModel(c: Case, brand: BrandProfile): ReportModel {
       ? [
           {
             type: "table",
-            headers: ["Hypothesis", "Status", "Confidence", "Impact", "Missing evidence"],
-            rows: c.hypotheses.map((h) => [h.statement + (h.userFeedback ? `\nUser feedback: ${h.userFeedback}` : ""), statusLabel(h.status), pct(h.confidence), cap(h.businessImpact), h.missingEvidence.join("; ") || "—"]),
+            headers: ["Hypothesis", "Status", "Evidence-checked confidence", "Stress test", "Impact", "Missing evidence"],
+            rows: c.hypotheses.map((h) => [
+              h.statement + (h.userFeedback ? `\nUser feedback: ${h.userFeedback}` : ""),
+              statusLabel(h.status),
+              h.assessment ? `${pct(h.assessment.score)} (model ${pct(h.confidence)})` : pct(h.confidence),
+              h.debate ? `${cap(h.debate.verdict.outcome)}: ${h.debate.verdict.reasoning}` : "Not debated",
+              cap(h.businessImpact),
+              h.missingEvidence.join("; ") || "—",
+            ]),
           },
+          ...c.hypotheses.filter((h) => h.debate && h.status !== "disagreed").map((h) => ({
+            type: "callout" as const,
+            label: `Devil's advocate: ${h.statement.slice(0, 90)}${h.statement.length > 90 ? "…" : ""}`,
+            text: [
+              ...h.debate!.challenges.map((ch) => `Challenge: ${ch.argument}${ch.alternative ? ` Alternative: ${ch.alternative}.` : ""}`),
+              `Defence: ${h.debate!.defense.argument}`,
+              `Verdict: ${cap(h.debate!.verdict.outcome)} (${pct(h.debate!.verdict.confidence)}). ${h.debate!.verdict.reasoning}`,
+              ...(h.debate!.verdict.settleWith.length ? [`Would settle it: ${h.debate!.verdict.settleWith.join("; ")}`] : []),
+            ].join("\n"),
+          })),
         ]
       : [],
   });

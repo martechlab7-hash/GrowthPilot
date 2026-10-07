@@ -32,6 +32,7 @@ import { getIndustry, industryIdFromName } from "@/knowledge/industries";
 import type { AuthContext } from "../auth";
 import { badRequest, HttpError, notFound } from "../errors";
 import { log } from "../logger";
+import { verifyEvidence, withAssessment } from "@/engine/verify";
 import { getEconomicsModel, modelForProblem } from "@/engine/economicsModels";
 import { inBackground } from "../background";
 import { can } from "../permissions";
@@ -40,8 +41,8 @@ import { detectPiiColumns, maskColumns, maskFreeText } from "@/lib/data/pii";
 import { profileTable } from "@/lib/data/profile";
 import { getStore } from "../store";
 import { audit } from "./org";
-import { gatewayFor } from "./providers";
-import { ActivityRecorder } from "./activity";
+import { gatewayFor, secondOpinion } from "./providers";
+import { ActivityRecorder, getActivity } from "./activity";
 import { assertAiQuota, PLAN_LIMITS } from "./usage";
 import { diffVersions } from "./versionDiff";
 
@@ -615,7 +616,9 @@ export async function diagnose(auth: AuthContext, caseId: string, override: bool
   if (!r.ready && !override) {
     throw new HttpError(409, "Discovery is not complete enough for a reliable diagnosis.", "NOT_READY", r);
   }
-  const diagnosis = await withAi(auth, c, "diagnose", (deps) => agents.runDiagnosis(deps, c));
+  const raw = await withAi(auth, c, "diagnose", (deps) => agents.runDiagnosis(deps, c));
+  // Deterministic evidence check: "fact" labels without a confirmed source are downgraded.
+  const diagnosis = { ...raw, findings: raw.findings.map((f) => ({ ...f, evidence: verifyEvidence(c, f.evidence).items })) };
   if (!r.ready) {
     await decision(auth, caseId, {
       decision: "Proceeded to diagnosis with incomplete discovery",
@@ -642,19 +645,58 @@ export async function diagnose(auth: AuthContext, caseId: string, override: bool
 export async function generateHypotheses(auth: AuthContext, caseId: string) {
   const c = await loadCase(auth, caseId);
   if (!c.diagnosis) throw new HttpError(409, "Run the diagnosis before generating hypotheses.", "NO_DIAGNOSIS");
-  const fresh = await withAi(auth, c, "hypotheses", (deps) => agents.generateHypotheses(deps, c));
+  const fresh = (await withAi(auth, c, "hypotheses", (deps) => agents.generateHypotheses(deps, c))).map((h) => withAssessment(c, h));
   let updated = await mutate(auth, caseId, (cur) => {
     // Keep reviewed hypotheses (including rejections, which inform future runs).
     const reviewed = cur.hypotheses.filter((h) => h.status !== "proposed");
     return clearPending({
       ...cur,
       hypotheses: [...reviewed, ...fresh],
+      debateStatus: "pending",
       status: "validation",
       transcript: [...cur.transcript, entry("consultant", "decision", "Here is what I believe is happening. Please review each hypothesis before I build the strategy.")],
     });
   });
   updated = await snapshot(auth, updated, "Hypotheses generated");
+  // The debate panel stress-tests the new hypotheses after the response is sent.
+  await inBackground("hypotheses.debate", () => runDebate(auth, caseId, fresh.map((h) => h.id)));
+  if (process.env.VITEST) updated = await loadCase(auth, caseId);
   return withDerived(updated);
+}
+
+/**
+ * Devil's-advocate debate. Challengers run on a second provider when one is
+ * configured; results feed the rule-based confidence score.
+ */
+async function runDebate(auth: AuthContext, caseId: string, ids?: string[]) {
+  const c = await loadCase(auth, caseId);
+  const targets = c.hypotheses.filter((h) => h.status !== "disagreed" && (!ids || ids.includes(h.id)));
+  if (!targets.length) return;
+  const debater = auth.aiPreference ? auth : { ...auth, ...(await secondOpinion(auth.orgId).then((p) => (p ? { aiPreference: p } : {}))) };
+  try {
+    const debates = await withAi(debater, c, "debate", (deps) => agents.debateHypotheses(deps, c, targets), { flagPending: false });
+    const model = (await getActivity(auth.orgId, caseId))?.model;
+    await mutate(auth, caseId, (cur) => ({
+      ...cur,
+      debateStatus: "done",
+      hypotheses: cur.hypotheses.map((h) => {
+        const d = debates[h.id];
+        if (!d) return h;
+        return withAssessment(cur, { ...h, debate: { ...d, at: now(), ...(model ? { model } : {}) } });
+      }),
+    }));
+  } catch (err) {
+    log("warn", "hypotheses.debate_failed", { caseId, message: (err as Error).message });
+    await mutate(auth, caseId, (cur) => ({ ...cur, debateStatus: "failed" }));
+    throw err;
+  }
+}
+
+/** Re-run the debate on demand (all hypotheses that are not rejected). */
+export async function debate(auth: AuthContext, caseId: string) {
+  await mutate(auth, caseId, (cur) => ({ ...cur, debateStatus: "pending" }));
+  await runDebate(auth, caseId);
+  return withDerived(await loadCase(auth, caseId));
 }
 
 export async function reviewHypothesis(auth: AuthContext, caseId: string, hypothesisId: string, input: z.infer<typeof ReviewSchema>) {
@@ -704,6 +746,16 @@ export async function reviewHypothesis(auth: AuthContext, caseId: string, hypoth
       break;
     }
   }
+
+  // A reworded hypothesis needs a fresh debate; the evidence score is always recomputed.
+  if (revised.statement !== h.statement) {
+    const { debate: _stale, ...rest } = revised;
+    void _stale;
+    revised = rest as Hypothesis;
+  } else if (h.debate && !revised.debate) {
+    revised = { ...revised, debate: h.debate };
+  }
+  revised = withAssessment(c, revised);
 
   const updated = await mutate(auth, caseId, (cur) => ({
     ...cur,

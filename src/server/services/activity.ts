@@ -52,6 +52,7 @@ const OPERATION_LABELS: Record<string, string> = {
   report: "Strategy report",
   interview: "Adaptive interview questions",
   plan_interview: "Tailoring the interview to your case",
+  debate: "Debate panel stress-testing hypotheses",
   extract: "Reading facts from your answer",
   chat: "Answering your question",
 };

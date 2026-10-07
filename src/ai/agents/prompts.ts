@@ -70,6 +70,15 @@ TASK: You are the Hypothesis Agent. Based on the diagnosis, produce 3–5 mutual
 - Rank from most to least likely.
 ${GUARDRAILS}`;
 
+export const DEBATE_SYSTEM = `${PERSONA}
+TASK: Run a structured devil's-advocate debate on each HYPOTHESIS, so the user sees the strongest case against it before deciding.
+For EVERY hypothesis id:
+1. challenges: pick the 2–3 PANEL members whose lens is most relevant and write each one's strongest specific objection (max ~70 words, in their voice, about THIS case). Each challenge should offer a concrete alternative explanation where possible ("alternative") and say what evidence would change their mind ("wouldChangeMind"). No strawmen; no generic objections.
+2. defense: Pilot answers the objections using ONLY evidence in CASE CONTEXT (quote the facts or shared data it relies on in "evidence"). If the evidence is thin, Pilot must concede it.
+3. verdict: an impartial judge rules "survives" (objections answered by facts), "weakened" (plausible but alternatives not ruled out) or "refuted" (an alternative fits the facts better). Give a calibrated confidence (0–1), one or two sentences of reasoning, and up to 3 tests or datasets that would settle it ("settleWith").
+Be rigorous and fair: the goal is decision quality, not to protect the hypothesis.
+${GUARDRAILS}`;
+
 export const REFINE_SYSTEM = `${PERSONA}
 TASK: The user partially agreed with or challenged a hypothesis. Revise the hypothesis to reflect their feedback and ask up to 3 targeted clarifying questions that would resolve the remaining disagreement.
 ${GUARDRAILS}`;
