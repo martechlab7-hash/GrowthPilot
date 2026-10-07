@@ -1,4 +1,5 @@
 import type { BrandProfile, Case, ScenarioResult } from "@/domain/types";
+import { getEconomicsModel } from "@/engine/economicsModels";
 import { formatValue, humanizeKey } from "@/engine/context";
 import { assessMaturity } from "@/engine/maturity";
 import { STAGE_LABELS } from "@/engine/interview";
@@ -286,19 +287,22 @@ export function buildReportModel(c: Case, brand: BrandProfile): ReportModel {
 
   if (c.economics) {
     const e = c.economics;
+    const em = getEconomicsModel(e.inputs.model);
     add({
       id: "economics",
       title: "15. Economics",
       headline: `Modelled value: ${money(e.scenarios.find((s) => s.name === "base")?.incrementalRevenue ?? 0, e.inputs.currency)} incremental revenue (base case)`,
       blocks: [
         { type: "callout", label: "Modelled estimate", text: e.disclaimer },
-        { type: "table", headers: ["Scenario", "Lift", "Customers", "Revenue", "Gross profit", "Program cost", "ROI", "Payback"], rows: scenarioRows(e.scenarios, e.inputs.currency) },
+        ...(em ? [{ type: "paragraph" as const, text: `Model: ${em.name}. ${em.description}` }] : []),
+        { type: "table", headers: ["Scenario", "Lift", em?.impacted ?? "Customers", "Revenue", "Gross profit", "Program cost", "ROI", "Payback"], rows: scenarioRows(e.scenarios, e.inputs.currency) },
         {
           type: "table",
           headers: ["Input", "Value", "Type"],
           rows: [
-            ["Eligible customers", e.inputs.eligibleCustomers.toLocaleString("en"), cap(e.inputProvenance.eligibleCustomers ?? "assumption")],
-            ["Average annual value", money(e.inputs.averageAnnualValue, e.inputs.currency), cap(e.inputProvenance.averageAnnualValue ?? "assumption")],
+            [em?.volume.label ?? "Eligible customers", e.inputs.eligibleCustomers.toLocaleString("en"), cap(e.inputProvenance.eligibleCustomers ?? "assumption")],
+            [em?.value.label ?? "Average annual value", money(e.inputs.averageAnnualValue, e.inputs.currency), cap(e.inputProvenance.averageAnnualValue ?? "assumption")],
+            [em?.lift.label ?? "Lift", `${e.inputs.scenarioLifts.conservative}% / ${e.inputs.scenarioLifts.base}% / ${e.inputs.scenarioLifts.aggressive}% (conservative / base / aggressive)`, "Assumption"],
             ["Gross margin", `${e.inputs.grossMarginPct}%`, cap(e.inputProvenance.grossMarginPct ?? "assumption")],
             ["Investment", money(e.inputs.investment, e.inputs.currency), "Assumption"],
             ["Monthly run cost", money(e.inputs.monthlyRunCost, e.inputs.currency), "Assumption"],

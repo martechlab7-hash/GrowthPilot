@@ -32,6 +32,7 @@ import { getIndustry, industryIdFromName } from "@/knowledge/industries";
 import type { AuthContext } from "../auth";
 import { badRequest, HttpError, notFound } from "../errors";
 import { log } from "../logger";
+import { getEconomicsModel, modelForProblem } from "@/engine/economicsModels";
 import { inBackground } from "../background";
 import { can } from "../permissions";
 import { parseDelimited } from "@/lib/data/csv";
@@ -808,25 +809,30 @@ export async function generatePlan(auth: AuthContext, caseId: string) {
 /* -------------------------------------------------------------------------- */
 
 /** Pre-fill economics inputs from known facts; anything else is an assumption. */
-export function economicsDefaults(c: Case): { inputs: EconomicsInputs; provenance: Record<string, KnowledgeKind> } {
-  const customers = getNumber(c.context, "business.customer_base_size");
-  const annual = getNumber(c.context, "economics.avg_annual_value");
+export function economicsDefaults(c: Case, modelId?: string): { inputs: EconomicsInputs; provenance: Record<string, KnowledgeKind> } {
+  const model = getEconomicsModel(modelId) ?? modelForProblem(c.problemTypes);
+  const first = (keys: string[]) => keys.map((k) => getNumber(c.context, k)).find((v) => v !== undefined);
+  const volume = first(model.volumeKeys);
+  const value = first(model.valueKeys);
   const margin = getNumber(c.context, "economics.gross_margin_pct");
   const topLift = c.recommendations.find((r) => r.expectedLiftPct !== undefined)?.expectedLiftPct;
-  const base = topLift ?? 10;
+  const lifts = topLift !== undefined && topLift > 0
+    ? { conservative: Math.max(1, Math.round(topLift / 2)), base: topLift, aggressive: Math.min(100, Math.round(topLift * 1.75)) }
+    : model.lifts;
   return {
     inputs: {
       currency: c.currency,
-      eligibleCustomers: customers ?? 0,
-      averageAnnualValue: annual ?? 0,
+      model: model.id,
+      eligibleCustomers: volume ?? 0,
+      averageAnnualValue: value ?? 0,
       grossMarginPct: margin ?? 0,
       investment: 0,
       monthlyRunCost: 0,
-      scenarioLifts: { conservative: Math.max(1, Math.round(base / 2)), base, aggressive: base * 2 },
+      scenarioLifts: lifts,
     },
     provenance: {
-      eligibleCustomers: customers !== undefined ? "fact" : "assumption",
-      averageAnnualValue: annual !== undefined ? "fact" : "assumption",
+      eligibleCustomers: volume !== undefined ? "fact" : "assumption",
+      averageAnnualValue: value !== undefined ? "fact" : "assumption",
       grossMarginPct: margin !== undefined ? "fact" : "assumption",
       investment: "assumption",
       monthlyRunCost: "assumption",
@@ -838,7 +844,7 @@ export function economicsDefaults(c: Case): { inputs: EconomicsInputs; provenanc
 export async function saveEconomics(auth: AuthContext, caseId: string, raw: unknown) {
   const inputs = EconomicsInputsSchema.parse(raw);
   const c = await loadCase(auth, caseId);
-  const defaults = economicsDefaults(c);
+  const defaults = economicsDefaults(c, inputs.model);
   // An input is a fact only if it matches a user-provided fact in the case context.
   const provenance: Record<string, KnowledgeKind> = {
     eligibleCustomers: defaults.provenance.eligibleCustomers === "fact" && inputs.eligibleCustomers === defaults.inputs.eligibleCustomers ? "fact" : "assumption",

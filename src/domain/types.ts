@@ -418,6 +418,8 @@ export type Experiment = z.infer<typeof ExperimentSchema>;
 
 export const EconomicsInputsSchema = z.object({
   currency: z.string().default("USD"),
+  /** Business-case template (retention, acquisition, conversion…); labels only, same maths. */
+  model: z.string().max(40).optional(),
   eligibleCustomers: z.number().min(0),
   averageAnnualValue: z.number().min(0),
   grossMarginPct: z.number().min(0).max(100),

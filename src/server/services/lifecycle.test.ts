@@ -178,6 +178,9 @@ describe("consulting lifecycle", () => {
 
     const defaults = svc.economicsDefaults(view.case);
     expect(defaults.inputs.scenarioLifts.base).toBe(8);
+    // A retention problem gets the retention template; switching re-labels the same maths.
+    expect(defaults.inputs.model).toBe("retention");
+    expect(svc.economicsDefaults(view.case, "conversion").inputs.model).toBe("conversion");
     view = await svc.saveEconomics(auth, created.id, { ...defaults.inputs, eligibleCustomers: 500_000, averageAnnualValue: 4000, grossMarginPct: 30 });
     expect(view.case.economics!.inputProvenance.eligibleCustomers).toBe("assumption");
     expect(view.case.economics!.scenarios.find((s) => s.name === "base")!.incrementalRevenue).toBe(160_000_000);
