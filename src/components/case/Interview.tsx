@@ -126,10 +126,13 @@ function QuestionCard({ q, disabled, busy, onSubmit }: { q: ScoredQuestion; disa
         {q.input === "select" && q.options && (
           <div className="flex flex-wrap gap-2">{q.options.map((o) => <Chip key={o} active={value === o} disabled={disabled} onClick={() => setValue(o)}>{o}</Chip>)}</div>
         )}
-        {q.input === "multiselect" && q.options && (
+        {q.input === "multiselect" && q.options && !q.groups && (
           <div className="flex flex-wrap gap-2">
             {q.options.map((o) => <Chip key={o} active={multi.includes(o)} disabled={disabled} onClick={() => setMulti(multi.includes(o) ? multi.filter((x) => x !== o) : [...multi, o])}>{o}</Chip>)}
           </div>
+        )}
+        {q.input === "multiselect" && q.groups && (
+          <GroupedChips groups={q.groups} selected={multi} disabled={disabled} onToggle={(o) => setMulti(multi.includes(o) ? multi.filter((x) => x !== o) : [...multi, o])} />
         )}
         {q.input === "boolean" && (
           <Select value={value} onChange={(e) => setValue(e.target.value)} disabled={disabled}>
@@ -161,5 +164,32 @@ function QuestionCard({ q, disabled, busy, onSubmit }: { q: ScoredQuestion; disa
         </div>
       </CardBody>
     </Card>
+  );
+}
+
+function GroupedChips({ groups, selected, onToggle, disabled }: { groups: { label: string; options: string[] }[]; selected: string[]; onToggle: (o: string) => void; disabled: boolean }) {
+  const [filter, setFilter] = useState("");
+  const f = filter.trim().toLowerCase();
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search tools — e.g. Adobe, Salesforce, Braze" className="max-w-sm" aria-label="Search tools" />
+        {selected.length > 0 && <span className="text-xs text-muted">{selected.length} selected</span>}
+      </div>
+      <div className="max-h-80 space-y-3 overflow-y-auto pr-1">
+        {groups.map((g) => {
+          const opts = g.options.filter((o) => !f || o.toLowerCase().includes(f) || g.label.toLowerCase().includes(f));
+          if (!opts.length) return null;
+          return (
+            <div key={g.label}>
+              <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-subtle">{g.label}</div>
+              <div className="flex flex-wrap gap-1.5">
+                {opts.map((o) => <Chip key={o} active={selected.includes(o)} disabled={disabled} onClick={() => onToggle(o)}>{o}</Chip>)}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }

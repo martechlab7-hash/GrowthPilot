@@ -19,7 +19,16 @@ export const STATUS_TONE: Record<CaseStatus, "neutral" | "blue" | "amber" | "vio
 
 export const industryName = (id?: string) => getIndustry(id)?.name ?? "Industry not set";
 
-export const problemLabel = (p: ProblemType) => p.charAt(0).toUpperCase() + p.slice(1);
+const PROBLEM_LABELS: Partial<Record<ProblemType, string>> = {
+  crm: "CRM",
+  martech: "MarTech",
+  paid_media: "Paid media",
+  seo_content: "SEO & content",
+  app_growth: "App growth",
+  pipeline: "B2B pipeline",
+};
+
+export const problemLabel = (p: ProblemType) => PROBLEM_LABELS[p] ?? p.charAt(0).toUpperCase() + p.slice(1);
 
 export function timeAgo(iso: string): string {
   const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);

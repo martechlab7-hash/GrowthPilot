@@ -12,7 +12,14 @@ const KEYWORDS: Record<ProblemType, string[]> = {
   crm: ["crm", "lifecycle", "email", "communication", "campaign", "whatsapp", "sms", "unsubscribe"],
   martech: ["cdp", "martech", "stack", "platform", "integration", "data warehouse", "tooling"],
   monetization: ["aov", "basket", "upsell", "cross-sell", "ancillary", "revenue per", "arpu", "ltv", "lifetime value"],
-  brand: ["brand", "awareness", "perception", "share of voice"],
+  brand: ["brand", "awareness", "perception", "share of voice", "consideration", "positioning", "reputation"],
+  pricing: ["pricing", "price", "discount", "promotion", "promo", "margin", "elasticity", "coupon"],
+  pipeline: ["pipeline", "mql", "sql", "leads", "lead quality", "sales cycle", "b2b", "demo request", "abm", "account-based", "win rate", "opportunit"],
+  paid_media: ["roas", "paid media", "paid social", "paid search", "ppc", "cpc", "cpm", "ad spend", "media spend", "performance marketing", "meta ads", "google ads", "creative fatigue"],
+  seo_content: ["seo", "organic", "search ranking", "content", "blog", "traffic drop", "core update", "backlink"],
+  measurement: ["attribution", "measurement", "mmm", "marketing mix", "incrementality", "tracking", "reporting", "dashboard", "kpi"],
+  advocacy: ["referral", "advocacy", "word of mouth", "nps", "reviews", "ugc", "community", "ambassador"],
+  app_growth: ["app install", "app store", "aso", "downloads", "uninstall", "push opt-in", "mobile app"],
 };
 
 /** Lightweight deterministic problem classification (no AI needed). */

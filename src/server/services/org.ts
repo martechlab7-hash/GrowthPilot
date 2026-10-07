@@ -109,3 +109,23 @@ export async function deleteAccount(auth: AuthContext, confirm: string) {
   }
   await store.collection<UserProfile>("users").delete(auth.uid);
 }
+
+export const PreferencesSchema = z.object({
+  mascot: z.string().regex(/^[a-z]{2,20}$/).optional(),
+  displayName: z.string().trim().min(1).max(120).optional(),
+});
+
+/** Per-user preferences (mascot, display name). */
+export async function updatePreferences(auth: AuthContext, input: z.infer<typeof PreferencesSchema>) {
+  if (!auth.profile) throw badRequest("Account setup required");
+  const { MASCOT_IDS } = await import("@/components/mascot/registry");
+  if (input.mascot && !MASCOT_IDS.includes(input.mascot)) throw badRequest("Unknown mascot");
+  const next: UserProfile = {
+    ...auth.profile,
+    ...(input.mascot ? { mascot: input.mascot } : {}),
+    ...(input.displayName ? { displayName: input.displayName } : {}),
+    updatedAt: new Date().toISOString(),
+  };
+  await getStore().collection<UserProfile>("users").set(next);
+  return getMe({ ...auth, profile: next });
+}

@@ -47,6 +47,13 @@ export const PROBLEM_TYPES = [
   "martech",
   "monetization",
   "brand",
+  "pricing",
+  "pipeline",
+  "paid_media",
+  "seo_content",
+  "measurement",
+  "advocacy",
+  "app_growth",
 ] as const;
 export const ProblemTypeSchema = z.enum(PROBLEM_TYPES);
 export type ProblemType = z.infer<typeof ProblemTypeSchema>;
@@ -132,6 +139,8 @@ export const QuestionSchema = z.object({
   why: z.string(),
   input: InputTypeSchema,
   options: z.array(z.string()).optional(),
+  /** Optional visual grouping of `options` (e.g. martech vendors by category). */
+  groups: z.array(z.object({ label: z.string(), options: z.array(z.string()) })).optional(),
   placeholder: z.string().optional(),
   unit: z.string().optional(),
   /** 1–5 scores feeding the Information Value Engine. */
@@ -555,6 +564,8 @@ export interface UserProfile {
   email: string;
   displayName: string;
   role: Role;
+  /** Preferred mascot character (see components/mascot/registry); "none" hides it. */
+  mascot?: string;
   createdAt: string;
   updatedAt: string;
 }

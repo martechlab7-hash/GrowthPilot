@@ -1,5 +1,6 @@
 "use client";
 
+import { Markdown } from "@/components/ui/Markdown";
 import { useEffect, useRef, useState } from "react";
 import { Lock, RotateCcw, Send, X } from "lucide-react";
 import type { ChatMessage } from "@/server/services/chat";
@@ -129,7 +130,7 @@ export function CaseChat({ caseId, available }: { caseId: string; available: boo
                 {messages.map((m) => (
                   <div key={m.id} className={cn("flex animate-fade-in", m.role === "user" ? "justify-end" : "justify-start")}>
                     <div className={cn("max-w-[88%] rounded-2xl px-3.5 py-2.5 text-sm", m.role === "user" ? "rounded-br-sm bg-ink text-white" : m.outOfScope ? "rounded-bl-sm border border-amber-200 bg-amber-50 text-amber-950" : "rounded-bl-sm bg-canvas text-ink")}>
-                      <div className="whitespace-pre-wrap leading-relaxed">{m.content}</div>
+                      {m.role === "user" ? <div className="whitespace-pre-wrap leading-relaxed">{m.content}</div> : <Markdown text={m.content} className="leading-relaxed" />}
                       {m.citations && m.citations.length > 0 && (
                         <div className="mt-2 flex flex-wrap gap-1">
                           {m.citations.map((c) => <span key={c} className="rounded-md bg-white px-1.5 py-0.5 text-[11px] text-muted ring-1 ring-line">{c}</span>)}

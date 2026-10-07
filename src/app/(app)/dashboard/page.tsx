@@ -9,6 +9,8 @@ import { OwlSays } from "@/components/mascot";
 import { useAuth } from "@/lib/client/auth";
 import { useApi } from "@/lib/client/useApi";
 import { industryName, problemLabel } from "@/lib/labels";
+import { firstName as getFirstName, needsName } from "@/lib/name";
+import { NameForm } from "@/components/account/NameForm";
 
 const FLOW = [
   { icon: FilePen, title: "Describe", text: "State the business problem in plain language." },
@@ -30,10 +32,19 @@ export default function DashboardPage() {
   const awaiting = cases.filter((c) => c.status === "validation");
   const problems = tally(cases.flatMap((c) => c.problemTypes));
   const industries = tally(cases.map((c) => industryName(c.industryId)));
-  const firstName = me?.onboarded ? me.profile.displayName.split(" ")[0] : "";
+  const firstName = me?.onboarded && !needsName(me.profile.displayName) ? getFirstName(me.profile.displayName) : "";
+  const askName = !!me?.onboarded && needsName(me.profile.displayName);
 
   return (
     <div className="mx-auto max-w-7xl space-y-8">
+      {askName && (
+        <Card className="border-brand-600/20">
+          <CardBody className="flex flex-wrap items-center gap-4">
+            <OwlSays size={56}>Hi! What should I call you?</OwlSays>
+            <div className="ml-auto"><NameForm submitLabel="Save name" autoFocus /></div>
+          </CardBody>
+        </Card>
+      )}
       <Card className="overflow-hidden">
         <div className="relative flex flex-wrap items-center justify-between gap-6 bg-gradient-to-br from-brand-700 via-brand to-violet-700 px-6 py-7 text-white sm:px-8">
           <div className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full bg-white/10 blur-3xl" />

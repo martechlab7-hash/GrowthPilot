@@ -41,6 +41,11 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /knowledge_resources/{id} {
+      allow read: if inOrg(resource.data.organizationId);
+      allow write: if false;
+    }
+
     // Encrypted API credentials, metering and audit trails are server-only.
     match /ai_providers/{id} { allow read, write: if false; }
     match /ai_usage/{id} { allow read, write: if false; }

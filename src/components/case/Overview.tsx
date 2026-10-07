@@ -1,5 +1,6 @@
 "use client";
 
+import { FrameworkInfoButton } from "@/components/frameworks/FrameworkGuide";
 import { Badge, Button, Card, CardBody, CardHeader, KindBadge } from "@/components/ui";
 import { formatValue, humanizeKey } from "@/engine/context";
 import { problemLabel } from "@/lib/labels";
@@ -73,7 +74,7 @@ export function Overview({ view, go }: CaseTabProps) {
         <CardBody className="grid gap-3 sm:grid-cols-2">
           {derived.frameworks.map((f) => (
             <div key={f.id} className="rounded-lg border border-line p-3 text-sm">
-              <div className="font-medium">{f.name} <span className="text-xs font-normal text-muted">· {f.category}</span></div>
+              <div className="flex items-start justify-between gap-2"><div className="font-medium">{f.name} <span className="text-xs font-normal text-muted">· {f.category}</span></div><FrameworkInfoButton id={f.id} /></div>
               <div className="mt-0.5 text-muted">{f.answers}</div>
               <div className="mt-1 text-xs text-muted">{f.reasons.join(" · ")}</div>
             </div>

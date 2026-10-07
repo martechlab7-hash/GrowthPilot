@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Compass } from "lucide-react";
+import { Check, Compass } from "lucide-react";
 import { product } from "@/config/product";
 import { Button, ErrorNote, Input, Label } from "@/components/ui";
 import { Owl } from "@/components/mascot";
@@ -41,17 +41,33 @@ export default function LoginPage() {
       <section className="relative hidden overflow-hidden bg-gradient-to-br from-brand-700 via-brand to-violet-700 p-12 text-white lg:flex lg:flex-col lg:justify-between">
         <div className="pointer-events-none absolute -left-24 bottom-0 h-96 w-96 rounded-full bg-white/10 blur-3xl" />
         <div className="relative flex items-center gap-2.5 text-lg font-semibold"><Compass className="h-5 w-5" /> {product.name}</div>
-        <div className="relative max-w-md">
-          <div className="mb-6 inline-block rounded-3xl bg-white/95 p-2 shadow-pop"><Owl size={120} /></div>
-          <h2 className="text-3xl font-semibold leading-tight tracking-tight">An AI strategist that investigates before it recommends.</h2>
-          <ul className="mt-6 space-y-2 text-sm text-white/85">
-            <li>✓ Consulting-style interview that asks the highest-value questions first</li>
-            <li>✓ Facts, inferences and assumptions always labelled</li>
-            <li>✓ You validate every hypothesis before the strategy is built</li>
-            <li>✓ Branded PDF, Word and PowerPoint deliverables</li>
+        <div className="relative max-w-xl">
+          <div className="flex items-end gap-4">
+            <div className="shrink-0 rounded-3xl bg-white/95 p-2 shadow-pop"><Owl size={112} /></div>
+            <div className="relative mb-3 rounded-2xl rounded-bl-sm bg-white px-4 py-3 text-ink shadow-pop">
+              <span aria-hidden className="absolute -left-1.5 bottom-3 h-3 w-3 rotate-45 bg-white" />
+              <p className="text-sm font-semibold">Hi, I&apos;m Pilot. Move your cursor — I&apos;m watching.</p>
+              <p className="mt-0.5 text-sm text-muted">Wherever you go next, I&apos;ll follow and help you grow.</p>
+            </div>
+          </div>
+          <h2 className="mt-10 text-3xl font-semibold leading-[1.15] tracking-tight [text-wrap:balance] xl:text-4xl">
+            An AI strategist that investigates before it recommends.
+          </h2>
+          <ul className="mt-8 space-y-3.5 text-[15px] text-white/90">
+            {[
+              "Asks the highest-value questions first",
+              "Labels every fact, inference and assumption",
+              "You approve each hypothesis before any strategy",
+              "Branded PDF, Word and PowerPoint reports",
+            ].map((t) => (
+              <li key={t} className="flex items-center gap-3 whitespace-nowrap">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/15 ring-1 ring-white/25"><Check className="h-3.5 w-3.5" /></span>
+                {t}
+              </li>
+            ))}
           </ul>
         </div>
-        <p className="relative text-xs text-white/60">{product.tagline}</p>
+        <p className="relative text-xs uppercase tracking-[0.14em] text-white/60">{product.tagline}</p>
       </section>
       <section className="flex items-center justify-center px-4 py-12">
         <div className="w-full max-w-sm space-y-6">
