@@ -50,7 +50,7 @@ import { getStore } from "../store";
 import { audit } from "./org";
 import { gatewayFor, secondOpinion } from "./providers";
 import { ActivityRecorder, getActivity } from "./activity";
-import { assertAiQuota, PLAN_LIMITS } from "./usage";
+import { assertAiQuota, planLimits } from "./usage";
 import { diffVersions } from "./versionDiff";
 
 const cases = () => getStore().collection<Case>("cases");
@@ -265,8 +265,9 @@ export async function createCase(auth: AuthContext, input: z.infer<typeof Create
   const plan = await orgPlan(auth.orgId);
   const existing = await cases().query({ where: [["organizationId", "==", auth.orgId]] });
   const active = existing.filter((c) => c.status !== "completed").length;
-  if (active >= PLAN_LIMITS[plan].activeCases) {
-    throw new HttpError(402, `The ${plan} plan allows ${PLAN_LIMITS[plan].activeCases} active cases. Complete or delete a case, or upgrade.`, "PLAN_LIMIT");
+  const { activeCases } = planLimits(plan);
+  if (active >= activeCases) {
+    throw new HttpError(402, `The ${plan} plan allows ${activeCases} active cases. Complete or delete a case, or upgrade.`, "PLAN_LIMIT");
   }
 
   const t = now();
