@@ -2,7 +2,9 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
-  serverExternalPackages: ["firebase-admin", "pptxgenjs", "docx"],
+  // pptxgenjs is bundled: its ES build is a plain .js file without "type": "module", which
+  // Node runtimes that do not auto-detect ESM refuse to import as an external package.
+  serverExternalPackages: ["firebase-admin", "docx"],
   /**
    * Serve Firebase's auth handler from this domain (Firebase "redirect best
    * practices", option 3). With NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN set to this
