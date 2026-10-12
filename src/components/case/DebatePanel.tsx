@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import { ChevronDown, Gavel, ShieldCheck, Swords } from "lucide-react";
-import type { Hypothesis } from "@/domain/types";
+import type { Debate, Hypothesis } from "@/domain/types";
 import { Badge } from "@/components/ui";
 import { Owl } from "@/components/mascot";
-import { CHALLENGERS, JUDGE, getPanelist } from "@/knowledge/debatePanel";
+import { CHALLENGERS, JUDGE, getPanelist, type Panelist } from "@/knowledge/debatePanel";
 import { cn } from "@/lib/cn";
 
 const OUTCOME = {
@@ -15,10 +15,10 @@ const OUTCOME = {
 };
 
 /** Row of the panel's mascots; used as the "debating…" state and in the section header. */
-export function PanelLineup({ busy, size = 40 }: { busy?: boolean; size?: number }) {
+export function PanelLineup({ busy, size = 40, panel = CHALLENGERS }: { busy?: boolean; size?: number; panel?: Panelist[] }) {
   return (
     <div className="flex items-end -space-x-2" aria-label="Debate panel">
-      {CHALLENGERS.map((p, i) => (
+      {panel.map((p, i) => (
         <span key={p.id} title={`${p.name} · ${p.role}`} className={cn("rounded-full bg-white ring-2 ring-white", busy && "animate-bounce")} style={busy ? { animationDelay: `${i * 120}ms`, animationDuration: "1.4s" } : undefined}>
           <Owl character={p.character} size={size} label={p.name} />
         </span>
@@ -58,16 +58,26 @@ export function DebatePanel({ h, debating }: { h: Hypothesis; debating: boolean 
             </ul>
           )}
 
-          {!d ? (
+          <DebateThread d={d} debating={debating} subject="hypothesis" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The debate itself: challengers, Pilot's defence and the Judge's verdict. Shared by hypotheses and strategy recommendations. */
+export function DebateThread({ d, debating, subject, panel = CHALLENGERS }: { d?: Debate; debating: boolean; subject: string; panel?: Panelist[] }) {
+  const outcome = d ? OUTCOME[d.verdict.outcome] : null;
+  return !d ? (
             debating ? (
-              <div className="flex flex-col items-center gap-2 py-4 text-sm text-muted"><PanelLineup busy /><span>Seven devil&apos;s advocates are looking for holes in this hypothesis…</span></div>
+              <div className="flex flex-col items-center gap-2 py-4 text-sm text-muted"><PanelLineup busy panel={panel} /><span>Seven devil&apos;s advocates are looking for holes in this {subject}…</span></div>
             ) : (
               <p className="text-sm text-muted">Not debated yet. Use “Run the debate” above to stress-test it.</p>
             )
           ) : (
             <div className="space-y-3">
               {d.challenges.map((ch, i) => {
-                const p = getPanelist(ch.panelistId);
+                const p = panel.find((x) => x.id === ch.panelistId) ?? getPanelist(ch.panelistId);
                 return (
                   <div key={i} className="flex animate-fade-in items-start gap-3" style={{ animationDelay: `${i * 120}ms` }}>
                     <div className="shrink-0 text-center"><Owl character={p?.character ?? "pirate"} size={52} mood={null} label={p?.name ?? "Challenger"} /></div>
@@ -117,9 +127,5 @@ export function DebatePanel({ h, debating }: { h: Hypothesis; debating: boolean 
                 </div>
               )}
             </div>
-          )}
-        </div>
-      )}
-    </div>
   );
 }

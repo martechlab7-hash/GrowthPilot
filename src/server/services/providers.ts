@@ -222,12 +222,28 @@ export async function gatewayFor(orgId: string, preference?: { providerId: strin
   });
 }
 
-export async function runProviderTest(orgId: string, id: string) {
+/**
+ * Test a saved provider. With `edits` (from the edit form) the unsaved
+ * settings are tested, using the stored key unless a new one is given;
+ * nothing is persisted in that case.
+ */
+export async function runProviderTest(orgId: string, id: string, edits?: Partial<ProviderInput>) {
   const current = await col().get(id);
   if (!current || current.organizationId !== orgId) throw notFound("Provider");
-  const result = await testProvider(resolve(current));
-  await col().update(id, { lastTest: { ...result, at: new Date().toISOString() } });
-  return result;
+  const hasEdits = !!edits && Object.keys(edits).length > 0;
+  if (!hasEdits) {
+    const result = await testProvider(resolve(current));
+    await col().update(id, { lastTest: { ...result, at: new Date().toISOString() } });
+    return result;
+  }
+  const baseUrl = edits.baseUrl === "" ? undefined : (edits.baseUrl ?? current.baseUrl);
+  validateBaseUrl(current.kind, baseUrl);
+  const stored = resolve(current);
+  return testProvider({
+    ...stored,
+    models: resolveModels(current.kind, edits.models, current.models),
+    credentials: { apiKey: edits.apiKey?.trim() || stored.credentials.apiKey, ...(baseUrl ? { baseUrl } : {}) },
+  });
 }
 
 /** Test credentials before saving them. Nothing is persisted. */

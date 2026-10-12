@@ -53,10 +53,15 @@ const AGENT_LABELS: Record<string, string> = {
   report: "Report Agent",
   chat: "Case assistant",
   comms_review: "Comms review",
+  strategy_diagnosis: "Strategy diagnosis",
+  strategy_build: "Strategy Agent",
+  strategy_plan: "Roadmap & budget planner",
+  strategy_debate: "Devil's-advocate panel",
+  competitor_research: "Competitor research",
   page_review: "Page review",
 };
 
-interface AgentDeps {
+export interface AgentDeps {
   gateway: AIGateway;
   call: GatewayCallContext;
   progress?: Progress;
@@ -64,12 +69,12 @@ interface AgentDeps {
   references?: string;
 }
 
-const REFERENCE_AGENTS = new Set(["interview", "diagnostic", "hypothesis", "recommendation", "activation", "measurement", "report", "debate"]);
+const REFERENCE_AGENTS = new Set(["interview", "diagnostic", "hypothesis", "recommendation", "activation", "measurement", "report", "debate", "strategy_diagnosis", "strategy_build", "strategy_plan", "strategy_debate"]);
 const REFERENCE_NOTE =
   "Organisation context. Saved links: only their titles and notes are known (pages were NOT fetched), so never invent their contents. Past cases and measured outcomes: precedent, not proof for this case. Benchmarks: external figures with their source; name the source and keep them separate from the client's own data.";
 
 /** Run one agent with PII masked on the way out and restored on the way back. */
-async function runAgent<T extends z.ZodType>(
+export async function runAgent<T extends z.ZodType>(
   deps: AgentDeps,
   agent: string,
   tier: ModelTier,
@@ -153,9 +158,10 @@ const RICH_INPUTS = new Set(["links", "images", "cadence"]);
 export async function extractFacts(
   deps: AgentDeps,
   text: string,
+  bank: Question[] = QUESTION_BANK,
 ): Promise<{ facts: ExtractedFact[]; problemTypes: ProblemType[] }> {
   // Links, screenshots and calendars are only ever entered through their own inputs.
-  const allowed = QUESTION_BANK.filter((q) => !RICH_INPUTS.has(q.input)).map((q) => ({
+  const allowed = bank.filter((q) => !RICH_INPUTS.has(q.input)).map((q) => ({
     key: q.key,
     input: q.input,
     ...(q.options ? { options: q.options } : {}),
@@ -164,7 +170,7 @@ export async function extractFacts(
     "ALLOWED KEYS": JSON.stringify(allowed),
     TEXT: text,
   }, S.ExtractionOutput);
-  const byKey = new Map(QUESTION_BANK.map((q) => [q.key, q]));
+  const byKey = new Map(bank.map((q) => [q.key, q]));
   const facts = out.facts.filter((f) => {
     const q = byKey.get(f.key);
     if (!q || RICH_INPUTS.has(q.input)) return false;

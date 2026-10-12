@@ -31,3 +31,14 @@ export const JUDGE: Panelist = {
 export function getPanelist(id: string): Panelist | undefined {
   return [...CHALLENGERS, JUDGE].find((p) => p.id === id);
 }
+
+/** The same panel, with lenses for stress-testing a strategy rather than a diagnosis. */
+export const STRATEGY_CHALLENGERS: Panelist[] = [
+  { ...CHALLENGERS[0]!, lens: "Is the evidence real? Is the baseline measured, or are we planning on numbers nobody has checked?" },
+  { ...CHALLENGERS[1]!, lens: "Will we be able to tell whether it worked: control groups, sample size, seasonality and incrementality?" },
+  { ...CHALLENGERS[2]!, lens: "Payback, margin and budget realism. Is this the best use of the money, and what if it underdelivers?" },
+  { ...CHALLENGERS[3]!, lens: "Would real customers notice, care and respond? Does it fit how they actually discover and buy?" },
+  { ...CHALLENGERS[4]!, lens: "How will competitors respond? Is it differentiated, or easy to copy and outspend?" },
+  { ...CHALLENGERS[5]!, lens: "Can this team deliver it with its current capacity, tools, approvals and timeline?" },
+  { ...CHALLENGERS[6]!, lens: "Argue the opposite: what different plan would beat this one with the same money and people?" },
+];

@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowDown, ArrowUp, KeyRound, Plus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, KeyRound, Pencil, Plus, Trash2 } from "lucide-react";
 import type { PublicProvider } from "@/server/services/providers";
 import { ProviderWizard, TestBadge, type TestResult } from "@/components/settings/ProviderWizard";
 import { KeyGuideButton } from "@/components/settings/KeyGuide";
-import { Badge, Button, Card, CardBody, ErrorNote, Input, Label, Spinner } from "@/components/ui";
+import { Badge, Button, Card, CardBody, ErrorNote, Spinner } from "@/components/ui";
 import { OwlSays, type MascotMood } from "@/components/mascot";
 import { apiFetch } from "@/lib/client/api";
 import { useAuth } from "@/lib/client/auth";
@@ -21,7 +21,7 @@ export default function AiProvidersPage() {
   const providers = data?.providers ?? [];
 
   const say = owl ?? (providers.length
-    ? { mood: null, tone: "default" as const, text: `You have ${providers.length} provider${providers.length > 1 ? "s" : ""}. I'll use them top to bottom, and fall back to the next one automatically if one fails. Pick a specific model per case from the AI model menu.` }
+    ? { mood: null, tone: "default" as const, text: `You have ${providers.length} provider${providers.length > 1 ? "s" : ""}. I'll use them top to bottom, and fall back to the next one automatically if one fails. Each case can stay on Auto or put one of them first from its AI menu; use Edit to change a key, models or name.` }
     : { mood: null, tone: "default" as const, text: "Hi, I'm Pilot! I need an AI provider before I can diagnose cases. Add one below — your key is encrypted and never shown again." });
 
   return (
@@ -68,7 +68,7 @@ function ProviderRow({ p, index, count, canManage, onChange, onOwl, neighbours }
   const [busy, setBusy] = useState<string | null>(null);
   const [test, setTest] = useState<TestResult | null>(p.lastTest ?? null);
   const [err, setErr] = useState<string | null>(null);
-  const [newKey, setNewKey] = useState("");
+  const [editing, setEditing] = useState(false);
   const act = async (label: string, fn: () => Promise<unknown>) => {
     setBusy(label);
     setErr(null);
@@ -90,6 +90,23 @@ function ProviderRow({ p, index, count, canManage, onChange, onOwl, neighbours }
   });
   const status = !p.enabled ? "off" : test ? (test.ok ? "ok" : "fail") : "untested";
 
+  if (editing) {
+    return (
+      <ProviderWizard
+        existing={p}
+        onOwl={onOwl}
+        onDone={(saved) => {
+          setEditing(false);
+          onOwl(saved ? { mood: "delighted", tone: "success", text: "Saved. Run Test any time to check the connection." } : null);
+          if (saved) {
+            setTest(null);
+            onChange();
+          }
+        }}
+      />
+    );
+  }
+
   return (
     <Card className="animate-fade-in">
       <CardBody className="space-y-3">
@@ -110,6 +127,7 @@ function ProviderRow({ p, index, count, canManage, onChange, onOwl, neighbours }
             <div className="flex flex-wrap items-center gap-1.5">
               <Button size="sm" variant="ghost" aria-label="Move up" disabled={index === 0 || !!busy} onClick={() => move(-1)}><ArrowUp className="h-4 w-4" /></Button>
               <Button size="sm" variant="ghost" aria-label="Move down" disabled={index === count - 1 || !!busy} onClick={() => move(1)}><ArrowDown className="h-4 w-4" /></Button>
+              <Button size="sm" variant="outline" disabled={!!busy} onClick={() => setEditing(true)}><Pencil className="h-4 w-4" /> Edit</Button>
               <Button size="sm" variant="outline" loading={busy === "test"} onClick={() => act("test", async () => {
                 onOwl({ mood: "sparkle", tone: "working", text: `Testing ${p.label}…` });
                 const r = await apiFetch<TestResult>(`/api/ai/providers/${p.id}/test`, { body: {} });
@@ -122,15 +140,6 @@ function ProviderRow({ p, index, count, canManage, onChange, onOwl, neighbours }
           )}
         </div>
         {test && <TestBadge r={test} />}
-        {canManage && (
-          <details className="text-sm">
-            <summary className="cursor-pointer text-xs font-medium text-muted hover:text-ink">Replace API key</summary>
-            <div className="mt-2 flex gap-2">
-              <Input type="password" autoComplete="off" className="max-w-xs" placeholder="New key" value={newKey} onChange={(e) => setNewKey(e.target.value)} />
-              <Button size="sm" variant="outline" disabled={!newKey} loading={busy === "rotate"} onClick={() => act("rotate", async () => { await apiFetch(`/api/ai/providers/${p.id}`, { method: "PATCH", body: { apiKey: newKey } }); setNewKey(""); setTest(null); onChange(); })}>Replace</Button>
-            </div>
-          </details>
-        )}
         <ErrorNote error={err} />
       </CardBody>
     </Card>

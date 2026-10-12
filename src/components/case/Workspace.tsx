@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangle, ArrowRight, Building2, CheckCircle2, Cpu, Database, FileText, Gauge, History, LayoutDashboard, Lightbulb,
-  LineChart, Map as MapIcon, MessagesSquare, RefreshCw, Route, Stethoscope, Target, Users,
+  LineChart, Map as MapIcon, MessagesSquare, RefreshCw, Route, Stethoscope, Target, Users, Compass, Radar, Wallet,
 } from "lucide-react";
 import type { Case } from "@/domain/types";
 import { Badge, Button, ErrorNote, Spinner } from "@/components/ui";
@@ -13,6 +13,14 @@ import { useAuth } from "@/lib/client/auth";
 import { STATUS_LABEL, STATUS_TONE, industryName, timeAgo } from "@/lib/labels";
 import { cn } from "@/lib/cn";
 import { useCase, type CaseView } from "./useCase";
+import { StrategyOverview } from "@/components/strategy/StrategyOverview";
+import { StrategyDiagnosisView } from "@/components/strategy/StrategyDiagnosisView";
+import { StrategyView } from "@/components/strategy/StrategyView";
+import { CompetitorView } from "@/components/strategy/CompetitorView";
+import { StrategyRoadmap } from "@/components/strategy/StrategyRoadmap";
+import { BudgetView } from "@/components/strategy/BudgetView";
+import { KpiView } from "@/components/strategy/KpiView";
+import { TYPE_LABEL, nextStrategyStep } from "@/components/strategy/shared";
 import { CaseChat } from "./CaseChat";
 import { Overview } from "./Overview";
 import { Interview } from "./Interview";
@@ -43,6 +51,10 @@ export const TABS = [
   ["roadmap", "Roadmap"],
   ["report", "Report"],
   ["history", "History"],
+  ["strategy", "Strategy"],
+  ["competitors", "Competitors"],
+  ["budget", "Budget"],
+  ["kpis", "KPIs"],
 ] as const;
 export type Tab = (typeof TABS)[number][0];
 
@@ -83,7 +95,7 @@ export function Workspace({ id }: { id: string }) {
 
   if (!ctl.view) {
     return ctl.error ? (
-      <div className="space-y-4"><ErrorNote error={ctl.error} /><Link href="/cases" className="text-sm text-brand-600">Back to cases</Link></div>
+      <div className="space-y-4"><ErrorNote error={ctl.error} /><Link href={pathname.startsWith("/strategies") ? "/strategies" : "/cases"} className="text-sm text-brand-600">Back</Link></div>
     ) : (
       <Spinner label="Opening case…" />
     );
@@ -93,13 +105,28 @@ export function Workspace({ id }: { id: string }) {
   const role = me?.onboarded ? me.profile.role : "viewer";
   const canManage = ["owner", "admin", "strategist"].includes(role);
   const canContribute = canManage || role === "analyst";
-  const next = nextAction(c, derived.readiness.ready);
+  const isStrategy = c.kind === "strategy" && !!c.strategy;
+  const next = isStrategy ? (nextStrategyStep(c, derived.readiness.ready) as { label: string; tab: Tab; detail: string }) : nextAction(c, derived.readiness.ready);
+  const groups = isStrategy ? strategyGroups(c) : TAB_GROUPS;
+  const tabLabel = (t: Tab) => (isStrategy && t === "history" ? "Versions" : TABS.find(([k]) => k === t)![1]);
   const props: CaseTabProps = { view: ctl.view, ctl, canManage, canContribute, go };
 
   /** Re-run the operation that failed, with the currently selected AI model. */
   async function retry(operation: string) {
     go(resumeTab(operation));
     switch (operation) {
+      case "strategy_diagnosis":
+        await ctl.run("Diagnosing", "/strategy/diagnose");
+        break;
+      case "strategy_build":
+        await ctl.run("Building strategy", "/strategy/build");
+        break;
+      case "strategy_plan":
+        await ctl.run("Planning", "/strategy/plan");
+        break;
+      case "competitor_research":
+        await ctl.run("Researching", "/strategy/research");
+        break;
       case "diagnose":
         if ((await ctl.run("Diagnosing", "/diagnose", { body: { override: true } })) && !c.hypotheses.some((h) => h.status === "proposed")) {
           if (await ctl.run("Generating hypotheses", "/hypotheses")) go("hypotheses");
@@ -135,7 +162,8 @@ export function Workspace({ id }: { id: string }) {
             <ProgressRing value={c.progress} />
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
-                <Badge tone={STATUS_TONE[c.status]}>{STATUS_LABEL[c.status]}</Badge>
+                <Badge tone={STATUS_TONE[c.status]}>{isStrategy ? (c.strategy!.status === "approved" ? "Approved" : c.strategy!.status === "generated" ? "Strategy drafted" : STATUS_LABEL[c.status]) : STATUS_LABEL[c.status]}</Badge>
+                {isStrategy && <Badge tone="violet">{TYPE_LABEL[c.strategy!.settings.type]}</Badge>}
                 <span>{industryName(c.industryId)}</span>
                 {goalOf(c.context) && <Badge tone="violet">{GOAL_BADGE[goalOf(c.context)!]}</Badge>}
                 {channelOf(c.context) && <Badge>{CHANNEL_BADGE[channelOf(c.context)!]}</Badge>}
@@ -179,12 +207,12 @@ export function Workspace({ id }: { id: string }) {
       <div className="grid gap-6 lg:grid-cols-[230px_minmax(0,1fr)] print:block">
         <aside className="no-print">
           <nav className="sticky top-20 space-y-4 rounded-2xl border border-line bg-white p-2.5 shadow-card" aria-label="Case sections">
-            {TAB_GROUPS.map((g) => (
+            {groups.map((g) => (
               <div key={g.title}>
                 <div className="px-2.5 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-subtle">{g.title}</div>
                 {g.tabs.map((t) => {
                   const Icon = TAB_ICONS[t];
-                  const label = TABS.find(([k]) => k === t)![1];
+                  const label = tabLabel(t);
                   const badge = tabBadge(t, c);
                   return (
                     <button
@@ -205,6 +233,21 @@ export function Workspace({ id }: { id: string }) {
         </aside>
 
         <section className="min-w-0 animate-fade-in" key={tab}>
+          {isStrategy ? (
+            <>
+              {tab === "overview" && <StrategyOverview {...props} />}
+              {tab === "interview" && <Interview {...props} />}
+              {tab === "diagnosis" && <StrategyDiagnosisView {...props} />}
+              {tab === "strategy" && <StrategyView {...props} />}
+              {tab === "competitors" && <CompetitorView {...props} />}
+              {tab === "roadmap" && <StrategyRoadmap {...props} />}
+              {tab === "budget" && <BudgetView {...props} />}
+              {tab === "kpis" && <KpiView {...props} />}
+              {tab === "report" && <ReportView {...props} />}
+              {tab === "history" && <HistoryView {...props} />}
+            </>
+          ) : (
+          <>
           {tab === "overview" && <Overview {...props} />}
           {tab === "interview" && <Interview {...props} />}
           {(tab === "business" || tab === "customer" || tab === "data" || tab === "technology") && <ContextView {...props} stage={tab} />}
@@ -217,6 +260,8 @@ export function Workspace({ id }: { id: string }) {
           {tab === "roadmap" && <RoadmapView {...props} />}
           {tab === "report" && <ReportView {...props} />}
           {tab === "history" && <HistoryView {...props} />}
+          </>
+          )}
         </section>
       </div>
 
@@ -241,6 +286,16 @@ const TAB_GROUPS: { title: string; tabs: Tab[] }[] = [
   { title: "Deliver", tabs: ["report", "history"] },
 ];
 
+/** Strategy Builder navigation: Overview → Interview → Diagnosis → Strategy → Roadmap → KPIs. */
+function strategyGroups(c: Case): { title: string; tabs: Tab[] }[] {
+  return [
+    { title: "Discover", tabs: ["overview", "interview", "diagnosis"] },
+    { title: "Strategy", tabs: ["strategy", ...(c.strategy?.settings.competitor !== "none" ? (["competitors"] as Tab[]) : [])] },
+    { title: "Execute", tabs: ["roadmap", "budget", "kpis"] },
+    { title: "Deliver", tabs: ["report", "history"] },
+  ];
+}
+
 const TAB_ICONS: Record<Tab, typeof LayoutDashboard> = {
   overview: LayoutDashboard,
   interview: MessagesSquare,
@@ -257,9 +312,24 @@ const TAB_ICONS: Record<Tab, typeof LayoutDashboard> = {
   roadmap: MapIcon,
   report: FileText,
   history: History,
+  strategy: Compass,
+  competitors: Radar,
+  budget: Wallet,
+  kpis: Gauge,
 };
 
 function tabBadge(t: Tab, c: Case) {
+  if (c.kind === "strategy" && c.strategy) {
+    const s = c.strategy;
+    if (t === "strategy" && s.recommendations.length) {
+      const pending = s.recommendations.filter((r) => r.status === "proposed").length;
+      return pending ? <span className="rounded-full bg-amber-100 px-1.5 text-[11px] font-semibold text-amber-800">{pending}</span> : <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />;
+    }
+    if (t === "diagnosis" && s.diagnosis) return <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />;
+    if (t === "roadmap" && s.tasks.length) return <span className="text-[11px] tabular-nums text-subtle">{s.tasks.filter((x) => x.status === "done").length}/{s.tasks.length}</span>;
+    if (t === "report" && s.status === "approved") return <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />;
+    return null;
+  }
   if (t === "hypotheses") {
     const pending = c.hypotheses.filter((h) => h.status === "proposed").length;
     if (pending) return <span className="rounded-full bg-amber-100 px-1.5 text-[11px] font-semibold text-amber-800">{pending}</span>;
@@ -316,6 +386,10 @@ function StageStepper({ stages }: { stages: CaseView["derived"]["stages"] }) {
 }
 
 function resumeTab(op: string): Tab {
+  if (op === "strategy_diagnosis") return "diagnosis";
+  if (op === "strategy_build") return "strategy";
+  if (op === "strategy_plan") return "roadmap";
+  if (op === "competitor_research") return "competitors";
   if (op === "diagnose") return "diagnosis";
   if (op === "hypotheses" || op === "refine_hypothesis") return "hypotheses";
   if (op === "recommendations") return "recommendations";

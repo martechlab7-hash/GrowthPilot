@@ -1,6 +1,7 @@
 import "server-only";
 import type { BrandProfile, Case } from "@/domain/types";
-import { buildReportModel, forAudience, type Audience } from "./model";
+import { forAudience, type Audience, type ReportModel } from "./model";
+import { reportModelFor } from "./forCase";
 import { renderMarkdown } from "./markdown";
 
 export const EXPORT_FORMATS = ["pdf", "docx", "pptx", "md", "json"] as const;
@@ -16,9 +17,9 @@ const MIME: Record<ExportFormat, string> = {
 
 export async function renderReport(c: Case, brand: BrandProfile, format: ExportFormat, audience: Audience = "full") {
   // XML (DOCX/PPTX) forbids most control characters; AI output occasionally contains them.
-  const model = JSON.parse(JSON.stringify(forAudience(buildReportModel(c, brand), audience)), (_k, v) =>
+  const model = JSON.parse(JSON.stringify(forAudience(reportModelFor(c, brand), audience)), (_k, v) =>
     typeof v === "string" ? v.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g, "") : v,
-  ) as ReturnType<typeof buildReportModel>;
+  ) as ReportModel;
   const slug = c.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "strategy";
   // Renderers load on demand so a problem in one format's library can't
   // break the others, and load failures surface as readable errors.

@@ -7,6 +7,7 @@ import { Button, Card, CardBody, ErrorNote, Input, Label } from "@/components/ui
 import type { MascotMood } from "@/components/mascot";
 import { apiFetch } from "@/lib/client/api";
 import { cn } from "@/lib/cn";
+import type { PublicProvider } from "@/server/services/providers";
 import { KeyGuideButton } from "./KeyGuide";
 
 export type TestResult = { ok: boolean; latencyMs: number; model: string; message: string };
@@ -45,17 +46,31 @@ function Step({ n, title, children, done }: { n: number; title: string; children
 export type OwlMessage = { mood: MascotMood | null; tone: "default" | "success" | "error" | "working"; text: string };
 
 /** Add-a-provider wizard, used in Settings and during onboarding. */
-export function ProviderWizard({ onDone, onOwl, cancelLabel = "Cancel" }: { onDone: (saved: boolean) => void; onOwl?: (o: OwlMessage | null) => void; cancelLabel?: string }) {
-  const [kind, setKind] = useState<ProviderKind>("openrouter");
+export function ProviderWizard({ onDone, onOwl, cancelLabel = "Cancel", existing }: {
+  onDone: (saved: boolean) => void;
+  onOwl?: (o: OwlMessage | null) => void;
+  cancelLabel?: string;
+  /** Edit a saved provider: settings are prefilled and the stored key is kept unless a new one is entered. */
+  existing?: PublicProvider;
+}) {
+  const editing = !!existing;
+  const [kind, setKind] = useState<ProviderKind>(existing?.kind ?? "openrouter");
+  const [label, setLabel] = useState(existing?.label ?? "");
   const [apiKey, setApiKey] = useState("");
-  const [baseUrl, setBaseUrl] = useState("");
-  const [models, setModels] = useState<ModelMap>(DEFAULT_MODELS.openrouter);
+  const [baseUrl, setBaseUrl] = useState(existing?.baseUrl ?? "");
+  const [models, setModels] = useState<ModelMap>(existing?.models ?? DEFAULT_MODELS.openrouter);
   const [busy, setBusy] = useState<string | null>(null);
   const [test, setTest] = useState<TestResult | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const body = () => ({ kind, apiKey, ...(baseUrl ? { baseUrl } : {}), models });
+  const body = () => ({ kind, ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}), ...(label.trim() ? { label: label.trim() } : {}), ...(baseUrl || editing ? { baseUrl } : {}), models });
+  const editBody = () => {
+    const { kind: _k, ...rest } = body();
+    void _k;
+    return rest;
+  };
   const missingModel = kind === "custom" && !models.reasoning.trim();
   const missingBase = kind === "custom" && !baseUrl.trim();
+  const hasKey = editing || !!apiKey.trim();
   const info = PROVIDER_INFO[kind];
 
   const runTest = async () => {
@@ -63,7 +78,9 @@ export function ProviderWizard({ onDone, onOwl, cancelLabel = "Cancel" }: { onDo
     setErr(null);
     onOwl?.({ mood: "sparkle", tone: "working", text: "Let me knock on the door… sending a tiny test request." });
     try {
-      const r = await apiFetch<TestResult>("/api/ai/test-provider", { body: body() });
+      const r = editing
+        ? await apiFetch<TestResult>(`/api/ai/providers/${existing.id}/test`, { body: editBody() })
+        : await apiFetch<TestResult>("/api/ai/test-provider", { body: body() });
       setTest(r);
       onOwl?.(r.ok
         ? { mood: "delighted", tone: "success", text: `It works! ${r.model} answered in ${r.latencyMs} ms. Save it and I'm ready to go.` }
@@ -79,7 +96,19 @@ export function ProviderWizard({ onDone, onOwl, cancelLabel = "Cancel" }: { onDo
   return (
     <Card className="animate-slide-up">
       <CardBody className="p-6">
-        <Step n={1} title="Choose a provider" done>
+        <Step n={1} title={editing ? "Provider" : "Choose a provider"} done>
+          {editing ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-xl border border-line bg-canvas px-3 py-2.5 text-sm">
+                <div className="font-semibold">{PROVIDER_LABELS[kind]}</div>
+                <div className="text-xs text-muted">To switch to a different provider, add it as a new one.</div>
+              </div>
+              <div>
+                <Label htmlFor="label">Display name</Label>
+                <Input id="label" value={label} maxLength={80} onChange={(e) => setLabel(e.target.value)} placeholder={PROVIDER_LABELS[kind]} />
+              </div>
+            </div>
+          ) : (
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {PROVIDER_KINDS.map((k) => (
               <button
@@ -93,16 +122,18 @@ export function ProviderWizard({ onDone, onOwl, cancelLabel = "Cancel" }: { onDo
               </button>
             ))}
           </div>
+          )}
         </Step>
 
-        <Step n={2} title="Paste your API key" done={!!apiKey}>
+        <Step n={2} title={editing ? "API key" : "Paste your API key"} done={hasKey}>
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
                 <label htmlFor="key" className="text-sm font-medium text-ink">API key <span className="font-normal text-muted">({info.keyHint})</span></label>
                 <KeyGuideButton kind={kind} />
               </div>
-              <Input id="key" type="password" autoComplete="off" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="Paste key" />
+              <Input id="key" type="password" autoComplete="off" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={editing ? `Keep current key (${existing.keyMask})` : "Paste key"} />
+              {editing && <p className="mt-1 text-xs text-muted">Leave blank to keep the saved key. A new key replaces it when you save.</p>}
               {info.keyUrl && (
                 <a href={info.keyUrl} target="_blank" rel="noreferrer" className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline">
                   Get a key <ExternalLink className="h-3 w-3" />
@@ -140,18 +171,19 @@ export function ProviderWizard({ onDone, onOwl, cancelLabel = "Cancel" }: { onDo
           {test && <div className="mb-3"><TestBadge r={test} /></div>}
           <ErrorNote error={err} />
           <div className="mt-3 flex flex-wrap gap-2">
-            <Button variant="outline" loading={busy === "test"} disabled={!apiKey || missingModel || missingBase} onClick={runTest}>Test connection</Button>
-            <Button loading={busy === "save"} disabled={!apiKey || missingModel || missingBase} onClick={async () => {
+            <Button variant="outline" loading={busy === "test"} disabled={!hasKey || missingModel || missingBase} onClick={runTest}>Test connection</Button>
+            <Button loading={busy === "save"} disabled={!hasKey || missingModel || missingBase} onClick={async () => {
               setBusy("save");
               setErr(null);
               try {
-                await apiFetch("/api/ai/providers", { body: body() });
+                if (editing) await apiFetch(`/api/ai/providers/${existing.id}`, { method: "PATCH", body: editBody() });
+                else await apiFetch("/api/ai/providers", { body: body() });
                 onDone(true);
               } catch (e) {
                 setErr((e as Error).message);
                 setBusy(null);
               }
-            }}>Save provider</Button>
+            }}>{editing ? "Save changes" : "Save provider"}</Button>
             <Button variant="ghost" onClick={() => onDone(false)}>{cancelLabel}</Button>
           </div>
         </Step>

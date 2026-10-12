@@ -1,7 +1,7 @@
 import { api } from "@/server/http";
 import { generateReport, getCase } from "@/server/services/cases";
 import { getBrand } from "@/server/services/brands";
-import { buildReportModel } from "@/reports/model";
+import { reportModelFor } from "@/reports/forCase";
 import { DEFAULT_BRAND } from "@/domain/types";
 
 type P = { id: string };
@@ -14,7 +14,7 @@ export const GET = api<P>({ permission: "case.read" }, async (req, auth, { id })
   const { case: c } = await getCase(auth, id);
   const requested = req.nextUrl.searchParams.get("brand");
   const brand = requested === "default" ? DEFAULT_BRAND : await getBrand(auth.orgId, requested || c.brandId);
-  return { model: buildReportModel(c, brand), hasNarrative: !!c.report };
+  return { model: reportModelFor(c, brand), hasNarrative: !!c.report };
 });
 
 export const POST = api<P>({ permission: "case.manage", rpm: 6 }, (_req, auth, { id }) => generateReport(auth, id));

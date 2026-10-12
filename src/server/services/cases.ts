@@ -18,13 +18,14 @@ import {
   type Question,
   type TranscriptEntry,
   type Dataset,
+  type StrategyPlan,
 } from "@/domain/types";
 import { classifyProblem } from "@/engine/classify";
 import { CHANNEL_KEY, CHANNEL_OPTIONS, detectChannel, detectGoal, GOAL_KEY, GOAL_OPTIONS } from "@/engine/caseProfile";
 import { emptyContext, getNumber, isKnown, markUnknown, setField } from "@/engine/context";
 import { computeEconomics } from "@/engine/economics";
 import { selectFrameworks } from "@/engine/frameworkSelection";
-import { findQuestion, nextQuestions, questionsToReady, readiness, stageCoverage, sufficiencyStatements } from "@/engine/interview";
+import { bankFor, findQuestion, nextQuestions, questionsToReady, readiness, stageCoverage, sufficiencyStatements } from "@/engine/interview";
 import { assessMaturity } from "@/engine/maturity";
 import { overallProgress, stageProgress } from "@/engine/progress";
 import { prioritize } from "@/engine/prioritization";
@@ -135,6 +136,7 @@ export function summarize(c: Case): CaseSummary {
   return {
     id: c.id, name: c.name, status: c.status, progress: c.progress,
     industryId: c.industryId, problemTypes: c.problemTypes, updatedAt: c.updatedAt, createdAt: c.createdAt,
+    ...(c.kind ? { kind: c.kind } : {}),
   };
 }
 
@@ -164,7 +166,7 @@ async function decision(auth: AuthContext, caseId: string, d: Pick<DecisionLogEn
   await getStore().collection<DecisionLogEntry>("decision_logs").set(row);
 }
 
-async function snapshot(auth: AuthContext, c: Case, label: string): Promise<Case> {
+export async function snapshot(auth: AuthContext, c: Case, label: string): Promise<Case> {
   const version = c.analysisVersion + 1;
   const v: CaseVersion = {
     id: `${c.id}_v${version}`,
@@ -177,6 +179,7 @@ async function snapshot(auth: AuthContext, c: Case, label: string): Promise<Case
     snapshot: {
       context: c.context, diagnosis: c.diagnosis, hypotheses: c.hypotheses, recommendations: c.recommendations,
       measurement: c.measurement, experiments: c.experiments, economics: c.economics, report: c.report, status: c.status,
+      ...(c.strategy ? { strategy: c.strategy } : {}),
     },
   };
   await getStore().collection<CaseVersion>("case_versions").set(JSON.parse(JSON.stringify(v)) as CaseVersion);
@@ -249,19 +252,24 @@ function clearPending(c: Case): Case {
 /* CRUD                                                                        */
 /* -------------------------------------------------------------------------- */
 
-export async function listCases(auth: AuthContext, filter?: string): Promise<CaseSummary[]> {
+export async function listCases(auth: AuthContext, filter?: string, kind: "case" | "strategy" = "case"): Promise<CaseSummary[]> {
   const rows = await cases().query({
     where: [["organizationId", "==", auth.orgId]],
     orderBy: { field: "updatedAt", direction: "desc" },
     limit: 200,
   });
-  const filtered = rows.filter((c) =>
+  const filtered = rows.filter((c) => (c.kind ?? "case") === kind).filter((c) =>
     filter === "drafts" ? c.status === "draft" : filter === "completed" ? c.status === "completed" : filter === "active" ? !["draft", "completed"].includes(c.status) : true,
   );
   return filtered.map(summarize);
 }
 
-export async function createCase(auth: AuthContext, input: z.infer<typeof CreateCaseSchema>): Promise<Case> {
+export async function createCase(
+  auth: AuthContext,
+  input: z.infer<typeof CreateCaseSchema>,
+  /** Strategy Builder cases carry their settings and settings-derived facts. */
+  extra?: { strategy: StrategyPlan; facts: [string, FieldValue][]; welcome: string },
+): Promise<Case> {
   const plan = await orgPlan(auth.orgId);
   const existing = await cases().query({ where: [["organizationId", "==", auth.orgId]] });
   const active = existing.filter((c) => c.status !== "completed").length;
@@ -308,6 +316,8 @@ export async function createCase(auth: AuthContext, input: z.infer<typeof Create
   const channel = input.salesChannel ?? detectChannel(text);
   if (channel) ctx = setField(ctx, { key: CHANNEL_KEY, value: CHANNEL_OPTIONS[channel], by: input.salesChannel ? by : "system", at: t, ...(input.salesChannel ? {} : { source: "ai_inference" as const, kind: "inference" as const, confidence: "medium" as const }) });
 
+  for (const [key, value] of extra?.facts ?? []) ctx = setField(ctx, { key, value, by, at: t });
+
   const problemTypes = classifyProblem(`${input.name} ${input.problemStatement}`);
   const frameworks = selectFrameworks({ problemStatement: input.problemStatement, problemTypes, industryId });
 
@@ -326,9 +336,10 @@ export async function createCase(auth: AuthContext, input: z.infer<typeof Create
     ...(industryId ? { industryId } : {}),
     currency: input.currency,
     context: ctx,
+    ...(extra ? { kind: "strategy" as const, strategy: extra.strategy } : {}),
     transcript: [
       entry("user", "message", input.problemStatement),
-      entry(
+      extra ? entry("consultant", "message", extra.welcome) : entry(
         "consultant",
         "message",
         `Thanks — before recommending anything I want to understand what is actually happening. ` +
@@ -374,7 +385,8 @@ async function enrichCase(auth: AuthContext, caseId: string, statement: string) 
   try {
     await assertAiQuota(auth.orgId, plan);
     const gateway = await gatewayFor(auth.orgId);
-    const { facts } = await agents.extractFacts({ gateway, call: { organizationId: auth.orgId, userId: auth.uid, caseId } }, statement);
+    const kind = (await cases().get(caseId))?.kind;
+    const { facts } = await agents.extractFacts({ gateway, call: { organizationId: auth.orgId, userId: auth.uid, caseId } }, statement, bankFor({ kind }));
     if (facts.length) await applyExtracted(auth, caseId, facts, "problem statement");
   } catch (err) {
     log("warn", "case.extraction_skipped", { caseId, message: (err as Error).message });
@@ -418,6 +430,11 @@ export async function getCase(auth: AuthContext, caseId: string) {
 }
 
 /** Case plus deterministic, always-fresh derived views. */
+/** A report can be shown once there are recommendations (diagnostic or strategy). */
+export function hasReportContent(c: Case): boolean {
+  return c.kind === "strategy" ? !!c.strategy?.recommendations.some((r) => r.status !== "rejected") : c.recommendations.length > 0;
+}
+
 export function withDerived(c: Case) {
   return {
     case: c,
@@ -606,7 +623,7 @@ export async function answerQuestions(auth: AuthContext, caseId: string, input: 
       const gateway = await gatewayFor(auth.orgId);
       if (!gateway.hasProviders) return;
       await assertAiQuota(auth.orgId, await orgPlan(auth.orgId));
-      const { facts } = await agents.extractFacts({ gateway, call: { organizationId: auth.orgId, userId: auth.uid, caseId } }, freeText.join("\n\n"));
+      const { facts } = await agents.extractFacts({ gateway, call: { organizationId: auth.orgId, userId: auth.uid, caseId } }, freeText.join("\n\n"), bankFor(current));
       if (facts.length) await applyExtracted(auth, caseId, facts, "answer");
     });
     if (process.env.VITEST) return interviewState(await loadCase(auth, caseId));
@@ -1186,7 +1203,7 @@ export const ShareInputSchema = z.object({ audience: z.enum(["full", "executive"
 /** Create (or rotate) the read-only report link. Rotating invalidates the old link. */
 export async function shareReport(auth: AuthContext, caseId: string, input: z.infer<typeof ShareInputSchema>) {
   const c = await loadCase(auth, caseId);
-  if (!c.recommendations.length) throw new HttpError(409, "Build recommendations before sharing the report.", "NOTHING_TO_SHARE");
+  if (!hasReportContent(c)) throw new HttpError(409, "Build recommendations before sharing the report.", "NOTHING_TO_SHARE");
   const token = Buffer.from(crypto.getRandomValues(new Uint8Array(24))).toString("base64url");
   const updated = await mutate(auth, caseId, (cur) => ({ ...cur, shareToken: token, share: { audience: input.audience, createdAt: now(), createdBy: auth.uid } }));
   await audit(auth.orgId, auth.uid, "case.share", caseId, { audience: input.audience });
