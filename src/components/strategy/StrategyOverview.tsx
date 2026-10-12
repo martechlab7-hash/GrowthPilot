@@ -18,6 +18,7 @@ export function StrategyOverview({ view, ctl, canManage, go }: CaseTabProps) {
   const readiness = useMemo(() => strategyReadiness(c.context), [c.context]);
   const checks = useMemo(() => evaluateStrategy(c), [c]);
   const [note, setNote] = useState("");
+  const approve = () => ctl.run("Approving", "/strategy/approve", { body: note.trim() ? { note: note.trim() } : {} });
 
   const steps: { label: string; done: boolean; tab: StrategyTab }[] = [
     { label: "Interview", done: view.derived.readiness.ready || !!s.diagnosis, tab: "interview" },
@@ -34,7 +35,11 @@ export function StrategyOverview({ view, ctl, canManage, go }: CaseTabProps) {
       <Card className="overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-4 bg-gradient-to-br from-brand-50 via-white to-violet-50 px-6 py-5">
           <OwlSays size={72} mood={s.status === "approved" ? "delighted" : null}>{next.detail}</OwlSays>
-          <Button onClick={() => go(next.tab as never)}>{next.label} <ArrowRight className="h-4 w-4" /></Button>
+          {next.approve && canManage ? (
+            <Button loading={ctl.busy === "Approving"} onClick={approve}><BadgeCheck className="h-4 w-4" /> {next.label}</Button>
+          ) : next.tab !== "overview" && (
+            <Button onClick={() => go(next.tab as never)}>{next.label} <ArrowRight className="h-4 w-4" /></Button>
+          )}
         </div>
         <ol className="flex overflow-x-auto border-t border-line" aria-label="Strategy progress">
           {steps.map((st, i) => (
@@ -97,7 +102,7 @@ export function StrategyOverview({ view, ctl, canManage, go }: CaseTabProps) {
             {checks.some((q) => !q.ok) && s.status !== "approved" && <p className="text-sm text-amber-800">{checks.filter((q) => !q.ok).length} quality check(s) need review. You can still approve; they will be listed in the report.</p>}
             <div className="flex flex-wrap items-end gap-2">
               <div className="min-w-[16rem] flex-1"><Label htmlFor="approval-note" hint="(optional)">Approval note</Label><Textarea id="approval-note" rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Approved by the CMO, budget confirmed by finance" /></div>
-              <Button loading={ctl.busy === "Approving"} onClick={() => ctl.run("Approving", "/strategy/approve", { body: note.trim() ? { note: note.trim() } : {} })}>
+              <Button loading={ctl.busy === "Approving"} onClick={approve}>
                 <BadgeCheck className="h-4 w-4" /> {s.status === "approved" ? "Approve again as a new version" : "Approve strategy"}
               </Button>
             </div>

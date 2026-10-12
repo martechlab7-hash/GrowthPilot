@@ -8,6 +8,13 @@ import { Owl, type MascotMood } from "@/components/mascot";
 import { apiFetch } from "@/lib/client/api";
 import { cn } from "@/lib/cn";
 
+const STRATEGY_STARTERS = [
+  "Summarise the strategy in three bullets",
+  "Which recommendation should we start with, and why?",
+  "What are the biggest risks in this plan?",
+  "How is the budget split across the scenarios?",
+];
+
 const STARTERS = [
   "Summarise what's happening in two sentences",
   "Which recommendation should we start with, and why?",
@@ -16,7 +23,8 @@ const STARTERS = [
 ];
 
 /** Pilot, the case assistant: answers only from this case's analysis. */
-export function CaseChat({ caseId, available }: { caseId: string; available: boolean }) {
+export function CaseChat({ caseId, available, strategy = false }: { caseId: string; available: boolean; strategy?: boolean }) {
+  const subject = strategy ? "strategy" : "case";
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -73,12 +81,12 @@ export function CaseChat({ caseId, available }: { caseId: string; available: boo
         <button
           onClick={() => setOpen(true)}
           className={cn("group fixed bottom-5 right-5 z-40 flex items-center gap-2 rounded-full border bg-white py-1.5 pl-1.5 pr-4 shadow-pop transition hover:-translate-y-0.5", available ? "border-brand-100" : "border-line opacity-80")}
-          aria-label={available ? "Ask Pilot about this case" : "Case assistant (unlocks after the report)"}
+          aria-label={available ? `Ask Pilot about this ${subject}` : strategy ? "Strategy assistant (unlocks once the strategy is built)" : "Case assistant (unlocks after the report)"}
         >
           <span className="pointer-events-none"><Owl size={available ? 44 : 32} /></span>
           <span className="text-left text-sm">
             <span className="block font-semibold">Ask Pilot</span>
-            {available ? <span className="block text-xs text-muted">Questions about this case</span> : <span className="block text-[11px] text-muted">Unlocks after the report</span>}
+            {available ? <span className="block text-xs text-muted">Questions about this {subject}</span> : <span className="block text-[11px] text-muted">{strategy ? "Unlocks once the strategy is built" : "Unlocks after the report"}</span>}
           </span>
         </button>
       )}
@@ -89,7 +97,7 @@ export function CaseChat({ caseId, available }: { caseId: string; available: boo
             <Owl size={52} mood={busy ? "sparkle" : mood} />
             <div className="min-w-0 flex-1">
               <div className="font-semibold">Pilot</div>
-              <div className="text-xs text-muted">{busy ? "Reading the case…" : "Answers only from this case's analysis"}</div>
+              <div className="text-xs text-muted">{busy ? `Reading the ${subject}…` : `Answers only from this ${subject}'s analysis`}</div>
             </div>
             {available && messages.length > 0 && (
               <button
@@ -111,17 +119,17 @@ export function CaseChat({ caseId, available }: { caseId: string; available: boo
           {!available ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center text-sm text-muted">
               <Lock className="h-6 w-6" />
-              <p>I unlock once the strategy report is generated. Until then I&apos;d be guessing, and I don&apos;t guess.</p>
-              <p className="text-xs">Finish the case and generate the report from the Report tab.</p>
+              <p>I unlock once the {strategy ? "strategy is built" : "report is generated"}. Until then I&apos;d be guessing, and I don&apos;t guess.</p>
+              <p className="text-xs">{strategy ? "Finish the interview and build the strategy from the Strategy tab." : "Finish the case and generate the report from the Report tab."}</p>
             </div>
           ) : (
             <>
               <div ref={listRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
                 {messages.length === 0 && loaded && (
                   <div className="space-y-3">
-                    <p className="text-sm text-muted">Hi! I&apos;ve read this whole case: diagnosis, hypotheses, recommendations, plan, economics and report. Ask me anything about it.</p>
+                    <p className="text-sm text-muted">{strategy ? "Hi! I've read this whole strategy: diagnosis, recommendations and debate, roadmap, budget, KPIs and risks. Ask me anything about it." : "Hi! I've read this whole case: diagnosis, hypotheses, recommendations, plan, economics and report. Ask me anything about it."}</p>
                     <div className="grid gap-2">
-                      {STARTERS.map((s) => (
+                      {(strategy ? STRATEGY_STARTERS : STARTERS).map((s) => (
                         <button key={s} onClick={() => ask(s)} className="rounded-xl border border-line px-3 py-2 text-left text-sm hover:border-brand-500 hover:bg-brand-50">{s}</button>
                       ))}
                     </div>
@@ -171,7 +179,7 @@ export function CaseChat({ caseId, available }: { caseId: string; available: boo
                   }}
                   rows={1}
                   maxLength={2000}
-                  placeholder="Ask about this case…"
+                  placeholder={`Ask about this ${subject}…`}
                   className="max-h-32 min-h-10 flex-1 resize-none rounded-xl border border-line-strong px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-500/15"
                 />
                 <button type="submit" aria-label="Send" disabled={busy || input.trim().length < 2} className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-600 text-white transition hover:bg-brand-700 disabled:opacity-40">

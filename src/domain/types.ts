@@ -928,7 +928,11 @@ export type CaseSummary = Pick<
   | "updatedAt"
   | "createdAt"
   | "kind"
->;
+> & {
+  /** Strategy Builder only: how far the strategy has got, and its type. */
+  strategyStatus?: StrategyPlan["status"];
+  strategyType?: StrategyPlan["settings"]["type"];
+};
 
 /* -------------------------------------------------------------------------- */
 /* Tenancy                                                                     */

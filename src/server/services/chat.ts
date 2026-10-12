@@ -31,8 +31,9 @@ export const ChatInputSchema = z.object({ message: z.string().trim().min(2).max(
 const col = () => getStore().collection<CaseChat>("case_chats");
 const MAX_MESSAGES = 200;
 
-/** Chat unlocks once the strategy report exists (the case is complete). */
+/** Chat unlocks once there is analysis to answer from: the case report, or a built strategy. */
 export function chatAvailable(c: Case) {
+  if (c.kind === "strategy") return (c.strategy?.recommendations.length ?? 0) > 0;
   return !!c.report;
 }
 
@@ -51,7 +52,7 @@ export async function getChat(auth: AuthContext, caseId: string) {
 export async function askCase(auth: AuthContext, caseId: string, message: string) {
   const c = await loadCase(auth, caseId);
   if (!chatAvailable(c)) {
-    throw new HttpError(409, "The case assistant unlocks once the strategy report has been generated.", "CHAT_LOCKED");
+    throw new HttpError(409, c.kind === "strategy" ? "The assistant unlocks once the strategy has been built." : "The case assistant unlocks once the report has been generated.", "CHAT_LOCKED");
   }
   const existing = (await col().get(caseId))?.messages ?? [];
   const now = () => new Date().toISOString();

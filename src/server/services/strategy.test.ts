@@ -69,6 +69,7 @@ function fixture(req: ChatRequest): unknown {
     findings: [{ competitor: "Rival", category: "Offers", finding: "Leads with 20% off first order", kind: "observed", source: "rival.example" }, { competitor: "Other", category: "Positioning", finding: "Premium", kind: "observed" }],
     comparisons: [{ dimension: "Offer", us: "No first-order offer", them: [{ competitor: "Rival", note: "20% off" }] }], implications: ["Test a first-order incentive"],
   };
+  if (sys.includes("You are Pilot, the case assistant")) return { answer: "Start with the post-purchase journey.", citations: ["Recommendation: Post-purchase journey"], outOfScope: false, followUps: [] };
   throw new Error(`Unexpected agent: ${sys.slice(0, 80)}`);
 }
 
@@ -84,6 +85,7 @@ vi.mock("../safeFetch", () => ({
 }));
 
 const svc = await import("./strategy");
+const chat = await import("./chat");
 const cases = await import("./cases");
 const { nextQuestions, readiness } = await import("@/engine/interview");
 const { renderReport } = await import("@/reports/render");
@@ -122,6 +124,7 @@ describe("strategy builder", () => {
     expect(readiness(cur).ready).toBe(false);
 
     // Diagnosis, then the strategy: priorities in code, unknown pillar fixed, debate in background.
+    await expect(chat.askCase(auth, c.id, "Where do we start?")).rejects.toThrow(/strategy has been built/);
     await svc.diagnose(auth, c.id);
     const built = (await svc.build(auth, c.id)).case.strategy!;
     expect(built.status).toBe("generated");
@@ -131,6 +134,12 @@ describe("strategy builder", () => {
     expect(built.recommendations.every((r) => r.debate?.verdict.outcome === "survives")).toBe(true);
     expect(built.recommendations[0]!.debate!.challenges.map((x) => x.panelistId)).toEqual(["finance"]);
     expect(built.debateStatus).toBe("done");
+
+    // The assistant unlocks once the strategy is built and answers from the strategy itself.
+    const answered = await chat.askCase(auth, c.id, "Where do we start?");
+    expect(answered.messages.at(-1)!.content).toBe("Start with the post-purchase journey.");
+    expect(prompts.at(-1)).toContain("Post-purchase journey");
+    expect(prompts.at(-1)).toContain("strategySettings");
 
     // Review: rejecting needs a reason; approval feeds the plan.
     const [first, second] = built.recommendations;

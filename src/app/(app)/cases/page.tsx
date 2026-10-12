@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Plus } from "lucide-react";
 import type { CaseSummary } from "@/domain/types";
-import { CaseCard } from "@/components/CaseCard";
+import { CaseCollection } from "@/components/CaseCollection";
 import { Button, EmptyState, ErrorNote, PageHeader, Spinner } from "@/components/ui";
 import { useApi } from "@/lib/client/useApi";
 
@@ -20,7 +20,7 @@ export default function CasesPage() {
       {loading ? (
         <Spinner label="Loading…" />
       ) : data?.cases.length ? (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{data.cases.map((c) => <CaseCard key={c.id} c={c} />)}</div>
+        <CaseCollection key={filter ?? "all"} items={data.cases} />
       ) : (
         <EmptyState title="No cases here" action={<Link href="/cases/new"><Button>New case</Button></Link>} />
       )}

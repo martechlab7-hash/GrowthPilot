@@ -38,13 +38,13 @@ export const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).replace
 export type StrategyTab = "overview" | "interview" | "diagnosis" | "strategy" | "competitors" | "roadmap" | "budget" | "kpis" | "report" | "history";
 
 /** The single next step in the strategy flow. */
-export function nextStrategyStep(c: Case, ready: boolean): { label: string; tab: StrategyTab; detail: string } {
+export function nextStrategyStep(c: Case, ready: boolean): { label: string; tab: StrategyTab; detail: string; approve?: boolean } {
   const s = c.strategy!;
   if (!s.diagnosis && !ready) return { label: "Continue the interview", tab: "interview", detail: "A few essentials are still missing." };
   if (!s.diagnosis) return { label: "Diagnose the business", tab: "diagnosis", detail: "The interview has enough to diagnose." };
   if (!s.recommendations.length) return { label: "Build the strategy", tab: "strategy", detail: "Pillars, prioritised recommendations and channel plan." };
   if (!s.recommendations.some((r) => r.status === "approved")) return { label: "Review the recommendations", tab: "strategy", detail: "Approve the ones to plan; reject the rest with a reason." };
   if (!s.tasks.length) return { label: "Build roadmap, budget & KPIs", tab: "roadmap", detail: "Turn approved recommendations into an execution plan." };
-  if (s.status !== "approved") return { label: "Approve the strategy", tab: "overview", detail: "Saves an approved version you can share and track." };
+  if (s.status !== "approved") return { label: "Approve the strategy", tab: "overview", detail: "Saves an approved version you can share and track.", approve: true };
   return { label: "Track execution", tab: "kpis", detail: "Update task status and KPI actuals as you go." };
 }
