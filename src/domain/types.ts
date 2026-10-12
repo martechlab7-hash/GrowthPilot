@@ -385,6 +385,194 @@ export const DebateSchema = z.object({
 });
 export type Debate = z.infer<typeof DebateSchema>;
 
+/* -------------------------------------------------------------------------- */
+/* Strategy Builder                                                            */
+/* -------------------------------------------------------------------------- */
+
+export const STRATEGY_TYPES = ["existing", "gtm", "launch", "growth_problem", "retention", "full"] as const;
+export type StrategyType = (typeof STRATEGY_TYPES)[number];
+export const PACES = ["aggressive", "balanced", "conservative"] as const;
+export type Pace = (typeof PACES)[number];
+
+/** Choices made when the strategy is created; they steer the interview and the plan. */
+export const StrategySettingsSchema = z.object({
+  type: z.enum(STRATEGY_TYPES),
+  scope: z.enum(["end_to_end", "digital", "crm", "paid", "launch"]),
+  /** none: skip; research: observable activity only; compare: research plus side-by-side comparison. */
+  competitor: z.enum(["none", "research", "compare"]),
+  channelPreference: z.enum(["optimize", "optimize_and_new", "best"]),
+  pace: z.enum(PACES),
+  horizon: z.enum(["30d", "90d", "180d", "12m"]),
+  resources: z.enum(["existing", "limited", "flexible"]),
+  launchDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  competitors: z.array(z.object({ name: z.string().trim().min(1).max(80), url: z.string().max(300).optional() })).max(6).default([]),
+  researchQuestions: z.string().max(1000).optional(),
+});
+export type StrategySettings = z.infer<typeof StrategySettingsSchema>;
+
+/** Where a statement comes from: connected data, external research, a stated assumption, or not yet known. */
+export const EvidenceKindSchema = z.enum(["observed", "researched", "estimated", "unknown"]);
+export type EvidenceKind = z.infer<typeof EvidenceKindSchema>;
+
+export const StrategyDiagnosisSchema = z.object({
+  summary: z.string(),
+  strengths: z.array(z.string()),
+  weaknesses: z.array(z.string()),
+  funnelGaps: z.array(z.string()),
+  rootCauses: z.array(z.object({ statement: z.string(), evidenceKind: EvidenceKindSchema, confidence: z.number().min(0).max(1), validateWith: z.string() })),
+  dataGaps: z.array(z.object({ item: z.string(), why: z.string(), proposal: z.string() })),
+  contradictions: z.array(z.string()),
+  assumptions: z.array(z.string()),
+  at: z.string(),
+});
+export type StrategyDiagnosis = z.infer<typeof StrategyDiagnosisSchema>;
+
+export const StrategyRecommendationSchema = z.object({
+  id: z.string(),
+  pillarId: z.string(),
+  title: z.string(),
+  problem: z.string(),
+  evidence: z.string(),
+  evidenceKind: EvidenceKindSchema,
+  rootCause: z.string(),
+  action: z.string(),
+  rationale: z.string(),
+  audience: z.string(),
+  channels: z.array(z.string()),
+  owner: z.string(),
+  timeline: z.string(),
+  budget: z.string(),
+  kpi: z.string(),
+  successCriteria: z.string(),
+  dependencies: z.array(z.string()),
+  risks: z.array(z.string()),
+  fallback: z.string(),
+  validateWith: z.string(),
+  /** 1–5 scales (impact, effort, risk, strategic fit) and 0–1 confidence; priority is computed in code. */
+  impact: z.number().min(1).max(5),
+  effort: z.number().min(1).max(5),
+  risk: z.number().min(1).max(5),
+  strategicFit: z.number().min(1).max(5),
+  confidence: z.number().min(0).max(1),
+  priority: z.number(),
+  rank: z.number(),
+  whyPrioritized: z.string(),
+  quickWin: z.boolean(),
+  needsNewTech: z.boolean(),
+  status: z.enum(["proposed", "approved", "rejected"]),
+  feedback: z.string().optional(),
+  debate: DebateSchema.optional(),
+});
+export type StrategyRecommendation = z.infer<typeof StrategyRecommendationSchema>;
+
+export const BudgetLineSchema = z.object({
+  item: z.string(),
+  category: z.enum(["media", "technology", "agency", "creative", "internal"]),
+  oneTime: z.number().min(0),
+  monthly: z.number().min(0),
+  note: z.string().optional(),
+});
+
+export const BudgetScenarioSchema = z.object({
+  pace: z.enum(PACES),
+  summary: z.string(),
+  lines: z.array(BudgetLineSchema),
+  forecast: z.object({ metric: z.string(), low: z.number(), base: z.number(), high: z.number(), assumptions: z.array(z.string()) }).optional(),
+  scalingCriteria: z.array(z.string()),
+});
+export type BudgetScenario = z.infer<typeof BudgetScenarioSchema>;
+
+export const RoadmapTaskSchema = z.object({
+  id: z.string(),
+  recommendationId: z.string().optional(),
+  workstream: z.string(),
+  title: z.string(),
+  owner: z.string(),
+  /** Effort in weeks at a sustainable pace. */
+  weeks: z.number().min(0.5).max(52),
+  dependsOn: z.array(z.string()),
+  /** Can run alongside other work in its workstream when capacity allows. */
+  parallelizable: z.boolean(),
+  /** Needs a review or sign-off (legal, brand, budget); approvals are never compressed. */
+  approval: z.boolean(),
+  deliverable: z.string(),
+  /** Marks a launch/go-live; conservative plans add a pilot gate after it. */
+  launch: z.boolean(),
+  status: z.enum(["todo", "doing", "done", "blocked"]),
+});
+export type RoadmapTask = z.infer<typeof RoadmapTaskSchema>;
+
+export const StrategyKpiSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  level: z.enum(["north_star", "primary", "secondary", "guardrail"]),
+  definition: z.string(),
+  baseline: z.string().optional(),
+  target: z.string().optional(),
+  cadence: z.string(),
+  source: z.string(),
+  evidenceKind: EvidenceKindSchema,
+  actual: z.string().optional(),
+  status: z.enum(["not_started", "on_track", "at_risk", "off_track"]).optional(),
+  correctiveAction: z.string().optional(),
+});
+export type StrategyKpi = z.infer<typeof StrategyKpiSchema>;
+
+export const CompetitorResearchSchema = z.object({
+  mode: z.enum(["research", "compare"]),
+  pagesRead: z.array(z.object({ competitor: z.string(), url: z.string(), status: z.enum(["read", "failed"]), title: z.string().optional(), error: z.string().optional() })),
+  findings: z.array(z.object({ competitor: z.string(), category: z.string(), finding: z.string(), kind: z.enum(["observed", "sourced", "hypothesis"]), source: z.string().optional() })),
+  comparisons: z.array(z.object({ dimension: z.string(), us: z.string(), them: z.array(z.object({ competitor: z.string(), note: z.string() })) })),
+  implications: z.array(z.string()),
+  at: z.string(),
+});
+export type CompetitorResearch = z.infer<typeof CompetitorResearchSchema>;
+
+export const StrategyPlanSchema = z.object({
+  settings: StrategySettingsSchema,
+  status: z.enum(["draft", "generated", "approved"]),
+  diagnosis: StrategyDiagnosisSchema.optional(),
+  executive: z.object({ situation: z.string(), direction: z.string(), outcomes: z.string() }).optional(),
+  segments: z.array(z.object({ name: z.string(), need: z.string(), priority: z.enum(["primary", "secondary", "later"]), evidenceKind: EvidenceKindSchema })).default([]),
+  pillars: z.array(z.object({ id: z.string(), title: z.string(), objective: z.string(), kpi: z.string(), rationale: z.string() })).default([]),
+  recommendations: z.array(StrategyRecommendationSchema).default([]),
+  channelPlan: z.array(z.object({
+    channel: z.string(),
+    status: z.enum(["keep", "optimize", "new", "test", "exclude"]),
+    role: z.string(),
+    funnelStage: z.string(),
+    rationale: z.string(),
+    kpi: z.string(),
+  })).default([]),
+  messaging: z.object({
+    valueProposition: z.string(),
+    audienceValueProps: z.array(z.object({ segment: z.string(), proposition: z.string() })),
+    contentPillars: z.array(z.string()),
+    campaignConcepts: z.array(z.object({ name: z.string(), idea: z.string(), audience: z.string(), channels: z.array(z.string()) })),
+  }).optional(),
+  gtm: z.object({
+    positioning: z.string(),
+    targetSegments: z.array(z.string()),
+    offer: z.string(),
+    phases: z.array(z.object({ name: z.string(), goal: z.string(), activities: z.array(z.string()), exitCriteria: z.string() })),
+    salesEnablement: z.array(z.string()),
+  }).optional(),
+  lifecycle: z.array(z.object({ stage: z.string(), journey: z.string(), trigger: z.string(), channels: z.array(z.string()), kpi: z.string() })).default([]),
+  budget: z.array(BudgetScenarioSchema).default([]),
+  tasks: z.array(RoadmapTaskSchema).default([]),
+  kpis: z.array(StrategyKpiSchema).default([]),
+  experiments: z.array(z.object({ name: z.string(), hypothesis: z.string(), metric: z.string(), design: z.string(), successThreshold: z.string(), duration: z.string() })).default([]),
+  risks: z.array(z.object({ risk: z.string(), category: z.string(), likelihood: z.enum(["low", "medium", "high"]), impact: z.enum(["low", "medium", "high"]), mitigation: z.string() })).default([]),
+  first30Days: z.array(z.string()).default([]),
+  openQuestions: z.array(z.string()).default([]),
+  measurementReadiness: z.array(z.string()).default([]),
+  research: CompetitorResearchSchema.optional(),
+  debateStatus: z.enum(["pending", "done", "failed"]).optional(),
+  generatedAt: z.string().optional(),
+  approval: z.object({ by: z.string(), at: z.string(), version: z.number(), note: z.string().optional() }).optional(),
+});
+export type StrategyPlan = z.infer<typeof StrategyPlanSchema>;
+
 /** Rule-based (not AI) assessment of how well a hypothesis is supported. */
 export const AssessmentSchema = z.object({
   evidenceStrength: z.number().min(0).max(1),
@@ -665,6 +853,9 @@ export const PendingOperationSchema = z.object({
 
 export const CaseSchema = z.object({
   id: z.string(),
+  /** "strategy" cases are built with the Strategy Builder; absent means a diagnostic case. */
+  kind: z.enum(["case", "strategy"]).optional(),
+  strategy: StrategyPlanSchema.optional(),
   organizationId: z.string(),
   createdBy: z.string(),
   createdAt: z.string(),
@@ -736,6 +927,7 @@ export type CaseSummary = Pick<
   | "problemTypes"
   | "updatedAt"
   | "createdAt"
+  | "kind"
 >;
 
 /* -------------------------------------------------------------------------- */
@@ -801,7 +993,7 @@ export interface CaseVersion {
     | "economics"
     | "report"
     | "status"
-  >;
+  > & Partial<Pick<Case, "strategy">>;
 }
 
 export interface AuditLogEntry {

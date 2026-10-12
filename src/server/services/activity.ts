@@ -56,6 +56,11 @@ const OPERATION_LABELS: Record<string, string> = {
   extract: "Reading facts from your answer",
   chat: "Answering your question",
   comms_review: "Reviewing your message screenshots",
+  strategy_diagnosis: "Diagnosing the business",
+  strategy_build: "Building the strategy",
+  strategy_plan: "Planning roadmap, budget and KPIs",
+  strategy_debate: "Devil's-advocate panel stress-testing the strategy",
+  competitor_research: "Researching competitors",
   page_review: "Reading your linked pages",
 };
 

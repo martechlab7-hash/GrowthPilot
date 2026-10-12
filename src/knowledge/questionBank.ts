@@ -1,4 +1,4 @@
-import type { ProblemType, Question } from "@/domain/types";
+import type { ProblemType, Question, StrategyType } from "@/domain/types";
 import { CHANNEL_KEY, CHANNEL_OPTIONS, GOAL_KEY, GOAL_OPTIONS, type CaseGoal, type SalesChannel } from "@/engine/caseProfile";
 import { INDUSTRY_OPTIONS } from "./industries";
 import { VENDOR_GROUPS, VENDOR_OPTIONS } from "./martech";
@@ -21,6 +21,12 @@ export interface BankQuestion extends Question {
     channels?: Exclude<SalesChannel, "omni">[];
     /** Only when the client messages customers directly (email, SMS, WhatsApp, push…). */
     requiresMessaging?: boolean;
+    /** Strategy Builder: only for these strategy types. */
+    strategyTypes?: StrategyType[];
+    /** Only when an earlier answer includes one of these options (branching follow-ups). */
+    answered?: { key: string; anyOf: string[] };
+    /** Strategy Builder: only when competitor research is switched on. */
+    competitorResearch?: boolean;
   };
   /** Multiplier applied when the case's problem types match. */
   boostFor?: ProblemType[];

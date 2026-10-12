@@ -14,12 +14,15 @@ export interface StageProgress {
  */
 export function stageProgress(c: Case): StageProgress[] {
   const coverage = new Map(stageCoverage(c).map((s) => [s.stage, s]));
-  const outputDone: Partial<Record<Stage, boolean>> = {
-    diagnosis: !!c.diagnosis,
-    activation: c.journeys.length > 0,
-    measurement: !!c.measurement,
-    economics: !!c.economics,
-  };
+  const st = c.kind === "strategy" ? c.strategy : undefined;
+  const outputDone: Partial<Record<Stage, boolean>> = st
+    ? { diagnosis: !!st.diagnosis, activation: st.recommendations.length > 0, measurement: st.kpis.length > 0, economics: st.budget.length > 0 }
+    : {
+        diagnosis: !!c.diagnosis,
+        activation: c.journeys.length > 0,
+        measurement: !!c.measurement,
+        economics: !!c.economics,
+      };
   return (Object.keys(STAGE_LABELS) as Stage[]).map((stage) => {
     const cov = coverage.get(stage);
     const info = cov ? cov.coverage : 0;
@@ -44,6 +47,17 @@ export function overallProgress(c: Case): number {
   const discovery = stages
     .filter((s) => ["business", "customer", "data", "technology"].includes(s.stage))
     .reduce((sum, s) => sum + s.percent, 0) / 4;
+  if (c.kind === "strategy" && c.strategy) {
+    const st = c.strategy;
+    if (st.status === "approved") return 100;
+    let sp = discovery * 0.35;
+    if (st.diagnosis) sp += 15;
+    if (st.recommendations.length) sp += 20;
+    if (st.recommendations.some((r) => r.status !== "proposed")) sp += 10;
+    if (st.tasks.length) sp += 10;
+    if (st.kpis.length) sp += 5;
+    return Math.min(99, Math.round(sp));
+  }
   const reviewed = c.hypotheses.length > 0 && c.hypotheses.every((h) => h.status !== "proposed");
   let p = discovery * 0.35;
   if (c.diagnosis) p += 10;

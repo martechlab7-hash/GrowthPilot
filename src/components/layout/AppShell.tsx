@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { BookOpen, Briefcase, ChevronRight, ChevronsUpDown, Compass, FileText, Gauge, Layers, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Plus, Settings, X } from "lucide-react";
+import { BookOpen, Briefcase, Rocket, ChevronRight, ChevronsUpDown, Compass, FileText, Gauge, Layers, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Plus, Settings, X } from "lucide-react";
 import { product } from "@/config/product";
 import { useAuth } from "@/lib/client/auth";
 import { isDemoMode } from "@/lib/client/firebase";
@@ -20,6 +20,7 @@ const NAV: { title: string; items: { href: string; label: string; icon: typeof G
     items: [
       { href: "/dashboard", label: "Dashboard", icon: Gauge },
       { href: "/cases", label: "Cases", icon: Briefcase, match: (p) => p.startsWith("/cases") },
+      { href: "/strategies", label: "Strategy Builder", icon: Rocket, match: (p) => p.startsWith("/strategies") },
       { href: "/reports", label: "Reports", icon: FileText },
     ],
   },
@@ -259,7 +260,8 @@ function UserMenu({ mini, name, initials, email, org, role, onSignOut }: { mini:
 const LABELS: Record<string, string> = {
   dashboard: "Dashboard",
   cases: "Cases",
-  new: "New case",
+  strategies: "Strategy Builder",
+  new: "New",
   reports: "Reports",
   frameworks: "Frameworks",
   knowledge: "Knowledge",

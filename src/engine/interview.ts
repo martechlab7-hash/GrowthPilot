@@ -1,6 +1,7 @@
 import type { Case, ProblemType, Question, ScoredQuestion, Stage } from "@/domain/types";
 import { STAGES } from "@/domain/types";
 import { QUESTION_BANK, type BankQuestion } from "@/knowledge/questionBank";
+import { STRATEGY_BANK } from "@/knowledge/strategyBank";
 import { isKnown, markUnknown } from "./context";
 import { fillPlaceholders, metricFromStatement, vocabularyFor } from "@/knowledge/vocabulary";
 import { channelOf, goalOf } from "./caseProfile";
@@ -18,7 +19,12 @@ export const MIN_PRIORITY = 20;
 const PROBLEM_BOOST = 1.5;
 const CRITICAL_BOOST = 1.25;
 
-type InterviewCase = Pick<Case, "context" | "problemTypes" | "industryId" | "adaptiveQuestions"> & Partial<Pick<Case, "problemStatement" | "questionPlan">>;
+type InterviewCase = Pick<Case, "context" | "problemTypes" | "industryId" | "adaptiveQuestions"> & Partial<Pick<Case, "problemStatement" | "questionPlan" | "kind" | "strategy">>;
+
+/** Strategy cases are interviewed with the Strategy Builder bank. */
+export function bankFor(c: Pick<InterviewCase, "kind">): BankQuestion[] {
+  return c.kind === "strategy" ? STRATEGY_BANK : QUESTION_BANK;
+}
 
 export const STAGE_LABELS: Record<Stage, string> = {
   business: "Business Objective",
@@ -53,6 +59,13 @@ export function isRelevant(q: Question | BankQuestion, c: InterviewCase): boolea
     if (channel !== "omni" && !when.channels.includes(channel)) return false;
   }
   if (when.requiresMessaging && !usesMessaging(c.context)) return false;
+  if (when.strategyTypes && (!c.strategy || !when.strategyTypes.includes(c.strategy.settings.type))) return false;
+  if (when.competitorResearch && (!c.strategy || c.strategy.settings.competitor === "none")) return false;
+  if (when.answered) {
+    const v = c.context.fields[when.answered.key]?.value;
+    const values = Array.isArray(v) ? v : v === undefined ? [] : [String(v)];
+    if (!values.some((x) => when.answered!.anyOf.includes(x))) return false;
+  }
   return true;
 }
 
@@ -148,7 +161,7 @@ function stripVariants(q: Question): Question {
 
 export function candidateQuestions(c: InterviewCase): (Question | BankQuestion)[] {
   const plan = c.questionPlan?.status === "ready" ? c.questionPlan.items : undefined;
-  const bank = QUESTION_BANK.filter((q) => isRelevant(q, c) && !plan?.[q.id]?.skip);
+  const bank = bankFor(c).filter((q) => isRelevant(q, c) && !plan?.[q.id]?.skip);
   const seen = new Set(bank.map((q) => q.key));
   const adaptive = c.adaptiveQuestions.filter((q) => !seen.has(q.key));
   return [...bank, ...adaptive];
@@ -226,8 +239,10 @@ export function readiness(c: InterviewCase): Readiness {
   const total = qs.reduce((s, q) => s + weight(q), 0);
   const captured = qs.reduce((s, q) => s + weight(q) * (1 - uncertainty(q, c)), 0);
   const coverage = total ? captured / total : 0;
+  // A strategy interview is broader (eleven areas), so less of the optional value is needed.
+  const threshold = c.kind === "strategy" ? 0.4 : 0.5;
   return {
-    ready: missingCritical.length === 0 && coverage >= 0.5,
+    ready: missingCritical.length === 0 && coverage >= threshold,
     criticalAnswered: critical.length - missingCritical.length,
     criticalTotal: critical.length,
     coverage: Math.round(coverage * 100) / 100,

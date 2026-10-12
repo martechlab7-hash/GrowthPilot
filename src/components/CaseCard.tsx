@@ -8,16 +8,16 @@ import { STATUS_LABEL, STATUS_TONE, industryName, problemLabel, timeAgo } from "
 
 export function CaseCard({ c }: { c: CaseSummary }) {
   return (
-    <Link href={`/cases/${c.id}`} className="group block h-full">
+    <Link href={c.kind === "strategy" ? `/strategies/${c.id}` : `/cases/${c.id}`} className="group block h-full">
       <div className="flex h-full flex-col rounded-2xl border border-line bg-white p-5 shadow-card transition duration-200 group-hover:-translate-y-0.5 group-hover:border-brand-100 group-hover:shadow-pop">
         <div className="flex items-start justify-between gap-3">
-          <Badge tone={STATUS_TONE[c.status]}>{STATUS_LABEL[c.status]}</Badge>
+          <Badge tone={STATUS_TONE[c.status]}>{c.kind === "strategy" && c.status === "completed" ? "Approved" : STATUS_LABEL[c.status]}</Badge>
           <ArrowUpRight className="h-4 w-4 text-subtle transition group-hover:text-brand-600" />
         </div>
         <h3 className="mt-3 line-clamp-2 font-semibold leading-snug tracking-tight">{c.name}</h3>
         <p className="mt-1 text-sm text-muted">{industryName(c.industryId)}</p>
         <div className="mt-3 flex flex-wrap gap-1">
-          {c.problemTypes.slice(0, 3).map((p) => <Badge key={p}>{problemLabel(p)}</Badge>)}
+          {c.kind === "strategy" ? <Badge tone="violet">Strategy</Badge> : c.problemTypes.slice(0, 3).map((p) => <Badge key={p}>{problemLabel(p)}</Badge>)}
         </div>
         <div className="mt-auto pt-5">
           <div className="mb-1.5 flex items-center justify-between text-xs text-muted">

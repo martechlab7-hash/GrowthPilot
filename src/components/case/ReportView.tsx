@@ -108,18 +108,26 @@ export function ReportView({ view, ctl, canManage }: CaseTabProps) {
 
   const shown = model ? forAudience(model, audience) : null;
 
-  if (!c.recommendations.length) {
-    return <EmptyState icon={<FileText className="h-8 w-8" />} title="The report comes last" description="Complete discovery, validate hypotheses and build recommendations first. A report is never produced from unvalidated hypotheses." />;
+  const isStrategy = c.kind === "strategy" && !!c.strategy;
+  if (isStrategy ? !c.strategy!.recommendations.some((r) => r.status !== "rejected") : !c.recommendations.length) {
+    return <EmptyState icon={<FileText className="h-8 w-8" />} title="The report comes last" description={isStrategy ? "Build the strategy first. The report is assembled from the diagnosis, recommendations, roadmap, budget and KPIs." : "Complete discovery, validate hypotheses and build recommendations first. A report is never produced from unvalidated hypotheses."} />;
   }
 
   return (
     <div className="space-y-5">
       <Card className="no-print">
+        {isStrategy ? (
+          <CardHeader
+            title={c.strategy!.status === "approved" ? `Approved strategy · version ${c.strategy!.approval?.version}` : "Strategy report (draft)"}
+            description="Built from the structured strategy, so it always matches the workspace. Download it with your brand, or share a read-only link."
+          />
+        ) : (
         <CardHeader
           title={c.report ? "Your strategy is ready." : "Generate the strategy report"}
           description={c.report ? `Narrative generated ${new Date(c.report.generatedAt).toLocaleString()}.` : "The Report Agent writes the executive narrative, roadmap and risks from your validated analysis."}
           action={canManage && <Button variant={c.report ? "outline" : "primary"} loading={ctl.busy === "Writing report"} onClick={() => ctl.run("Writing report", "/report")}>{c.report ? "Regenerate narrative" : "Generate report"}</Button>}
         />
+        )}
         <CardBody className="flex flex-wrap items-end gap-3">
           <div className="w-60">
             <label className="mb-1.5 block text-sm font-medium" htmlFor="audience">Who is it for?</label>

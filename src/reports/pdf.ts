@@ -189,7 +189,7 @@ function drawFlow(doc: Doc, steps: Extract<Block, { type: "flow" }>["steps"], wi
 
 /** Standard PDF fonts are WinAnsi-encoded; replace glyphs they cannot render. */
 const winAnsi = (s: string) =>
-  s.replace(/₹/g, "INR ").replace(/[→⇒]/g, "->").replace(/[^\x00-\xFF€–—‘’“”•…™]/g, "?");
+  s.replace(/₹/g, "INR ").replace(/[→⇒]/g, "->").replace(/≥/g, ">=").replace(/≤/g, "<=").replace(/≠/g, "!=").replace(/[★☆]/g, "*").replace(/✕/g, "x").replace(/[−]/g, "-").replace(/[^\x00-\xFF€–—‘’“”•…™]/g, "?");
 
 function sanitizeModel(m: ReportModel): ReportModel {
   return JSON.parse(JSON.stringify(m), (_k, v) => (typeof v === "string" ? winAnsi(v) : v)) as ReportModel;
