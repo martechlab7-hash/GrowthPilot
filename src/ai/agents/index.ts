@@ -392,7 +392,30 @@ export async function answerCaseQuestion(
   history: ChatTurn[],
   question: string,
 ): Promise<{ answer: string; citations: string[]; outOfScope: boolean; followUps: string[] }> {
-  const dossier = {
+  const s = c.kind === "strategy" ? c.strategy : undefined;
+  const dossier = s ? {
+    context: buildAgentContext(c),
+    strategySettings: s.settings,
+    status: s.status,
+    approval: s.approval ?? null,
+    diagnosis: s.diagnosis ?? null,
+    executiveSummary: s.executive ?? null,
+    segments: s.segments,
+    pillars: s.pillars,
+    recommendations: s.recommendations.map((r) => ({ ref: `Recommendation: ${r.title}`, ...r })),
+    channelPlan: s.channelPlan,
+    messaging: s.messaging,
+    gtm: s.gtm ?? null,
+    lifecycle: s.lifecycle,
+    budgetScenarios: s.budget,
+    roadmap: s.tasks,
+    kpis: s.kpis,
+    experiments: s.experiments,
+    risks: s.risks,
+    first30Days: s.first30Days,
+    openQuestions: s.openQuestions,
+    competitorResearch: s.research ?? null,
+  } : {
     context: buildAgentContext(c),
     diagnosis: c.diagnosis ?? null,
     hypotheses: c.hypotheses.map((h, i) => ({ ref: `Hypothesis ${i + 1}`, statement: h.statement, status: h.status, confidence: h.confidence, evidence: h.evidence, missingEvidence: h.missingEvidence, userFeedback: h.userFeedback })),

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Plus, Radar, Rocket, Wrench } from "lucide-react";
 import type { CaseSummary } from "@/domain/types";
-import { CaseCard } from "@/components/CaseCard";
+import { CaseCollection } from "@/components/CaseCollection";
 import { Button, Card, CardBody, ErrorNote, PageHeader, Spinner } from "@/components/ui";
 import { OwlSays } from "@/components/mascot";
 import { useApi } from "@/lib/client/useApi";
@@ -28,7 +28,7 @@ export default function StrategiesPage() {
       {loading ? (
         <Spinner label="Loading…" />
       ) : list.length ? (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{list.map((c) => <CaseCard key={c.id} c={c} />)}</div>
+        <CaseCollection items={list} />
       ) : (
         <Card className="overflow-hidden">
           <div className="bg-gradient-to-br from-brand-50 via-white to-violet-50 px-6 py-6">

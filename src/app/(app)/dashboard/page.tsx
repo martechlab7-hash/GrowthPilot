@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, Briefcase, CheckCircle2, FilePen, Lightbulb, Plus, Sparkles, Stethoscope, Target } from "lucide-react";
+import { ArrowRight, BadgeCheck, Briefcase, CheckCircle2, FilePen, Lightbulb, Plus, Rocket, Sparkles, Stethoscope, Target } from "lucide-react";
 import type { CaseSummary, ProblemType } from "@/domain/types";
 import { CaseCard } from "@/components/CaseCard";
 import { Button, Card, CardBody, CardHeader, ErrorNote, Skeleton, StatCard } from "@/components/ui";
@@ -23,7 +23,11 @@ const FLOW = [
 export default function DashboardPage() {
   const { me } = useAuth();
   const { data, error, loading } = useApi<{ cases: CaseSummary[] }>("/api/cases");
+  const strategiesApi = useApi<{ strategies: CaseSummary[] }>("/api/strategies");
   const cases = data?.cases ?? [];
+  const strategies = strategiesApi.data?.strategies ?? [];
+  const built = strategies.filter((s) => s.strategyStatus === "generated" || s.strategyStatus === "approved" || s.status === "completed").length;
+  const approvedStrategies = strategies.filter((s) => s.strategyStatus === "approved" || s.status === "completed").length;
   const counts = {
     active: cases.filter((c) => !["draft", "completed"].includes(c.status)).length,
     completed: cases.filter((c) => c.status === "completed").length,
@@ -73,12 +77,14 @@ export default function DashboardPage() {
         </div>
       </Card>
 
-      <ErrorNote error={error} />
+      <ErrorNote error={error ?? strategiesApi.error} />
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <StatCard label="Cases solved" value={loading ? "–" : counts.completed} icon={<CheckCircle2 className="h-4 w-4" />} hint="Report generated" />
         <StatCard label="Active cases" value={loading ? "–" : counts.active} icon={<Briefcase className="h-4 w-4" />} hint="In discovery, validation or strategy" />
-        <StatCard label="Completed" value={loading ? "–" : counts.completed} icon={<CheckCircle2 className="h-4 w-4" />} hint="Strategy report generated" />
-        <StatCard label="Drafts" value={loading ? "–" : counts.draft} icon={<FilePen className="h-4 w-4" />} hint="Not yet started" />
+        <StatCard label="Draft cases" value={loading ? "–" : counts.draft} icon={<FilePen className="h-4 w-4" />} hint="Not yet started" />
+        <Link href="/strategies" className="block [&>*]:h-full"><StatCard label="Strategies built" value={strategiesApi.loading ? "–" : built} icon={<Rocket className="h-4 w-4" />} hint={`${strategies.length} in Strategy Builder`} /></Link>
+        <Link href="/strategies" className="block [&>*]:h-full"><StatCard label="Strategies approved" value={strategiesApi.loading ? "–" : approvedStrategies} icon={<BadgeCheck className="h-4 w-4" />} hint="Approved versions" /></Link>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">

@@ -106,7 +106,8 @@ export function Workspace({ id }: { id: string }) {
   const canManage = ["owner", "admin", "strategist"].includes(role);
   const canContribute = canManage || role === "analyst";
   const isStrategy = c.kind === "strategy" && !!c.strategy;
-  const next = isStrategy ? (nextStrategyStep(c, derived.readiness.ready) as { label: string; tab: Tab; detail: string }) : nextAction(c, derived.readiness.ready);
+  const next = isStrategy ? (nextStrategyStep(c, derived.readiness.ready) as { label: string; tab: Tab; detail: string; approve?: boolean }) : nextAction(c, derived.readiness.ready);
+  const approveNow = isStrategy && canManage && !!(next as { approve?: boolean }).approve;
   const groups = isStrategy ? strategyGroups(c) : TAB_GROUPS;
   const tabLabel = (t: Tab) => (isStrategy && t === "history" ? "Versions" : TABS.find(([k]) => k === t)![1]);
   const props: CaseTabProps = { view: ctl.view, ctl, canManage, canContribute, go };
@@ -176,8 +177,8 @@ export function Workspace({ id }: { id: string }) {
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2 xl:flex-col xl:items-end">
             {canContribute && <AiModelPicker />}
-            {tab !== next.tab && (
-              <button onClick={() => go(next.tab)} className="group flex items-center justify-between gap-3 rounded-xl bg-ink px-4 py-2 text-left text-sm text-white transition hover:bg-ink/85">
+            {(tab !== next.tab || approveNow) && (
+              <button disabled={ctl.busy !== null} onClick={() => (approveNow ? ctl.run("Approving", "/strategy/approve", { body: {} }) : go(next.tab))} className="group flex items-center justify-between gap-3 rounded-xl bg-ink px-4 py-2 text-left text-sm text-white transition hover:bg-ink/85">
                 <span><span className="block text-[11px] uppercase tracking-wider text-white/60">Next step</span>{next.label}</span>
                 <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
               </button>
@@ -274,7 +275,7 @@ export function Workspace({ id }: { id: string }) {
         </div>
       )}
 
-      <CaseChat caseId={c.id} available={!!c.report} />
+      <CaseChat caseId={c.id} available={isStrategy ? c.strategy!.recommendations.length > 0 : !!c.report} strategy={isStrategy} />
     </div>
   );
 }

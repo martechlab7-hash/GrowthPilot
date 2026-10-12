@@ -137,6 +137,7 @@ export function summarize(c: Case): CaseSummary {
     id: c.id, name: c.name, status: c.status, progress: c.progress,
     industryId: c.industryId, problemTypes: c.problemTypes, updatedAt: c.updatedAt, createdAt: c.createdAt,
     ...(c.kind ? { kind: c.kind } : {}),
+    ...(c.strategy ? { strategyStatus: c.strategy.status, strategyType: c.strategy.settings.type } : {}),
   };
 }
 
@@ -256,7 +257,7 @@ export async function listCases(auth: AuthContext, filter?: string, kind: "case"
   const rows = await cases().query({
     where: [["organizationId", "==", auth.orgId]],
     orderBy: { field: "updatedAt", direction: "desc" },
-    limit: 200,
+    limit: 1000,
   });
   const filtered = rows.filter((c) => (c.kind ?? "case") === kind).filter((c) =>
     filter === "drafts" ? c.status === "draft" : filter === "completed" ? c.status === "completed" : filter === "active" ? !["draft", "completed"].includes(c.status) : true,
